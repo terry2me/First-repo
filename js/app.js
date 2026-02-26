@@ -560,7 +560,9 @@ function renderPreview(data) {
 async function showStockPreview(code) {
   const cached = AppState.watchData[code];
   document.getElementById('stockInput').value = cached?.ticker || code;
-  if (cached) {
+
+  // previewInterval 과 listInterval 이 같으면 캐시 즉시 표시 후 백그라운드 갱신
+  if (cached && AppState.previewInterval === AppState.listInterval) {
     AppState.previewCode = code;
     AppState.previewData = cached;
     renderPreview(cached);
@@ -569,7 +571,10 @@ async function showStockPreview(code) {
     _bgRefreshStock(cached.ticker || code, code);
     return;
   }
-  doSearch(code);
+
+  // previewInterval 이 listInterval 과 다른 경우(예: 주봉 선택 상태)
+  // → previewInterval 기준으로 DB 조회 (dbOnly=true, 깜빡임 없음)
+  doSearch(code, true);
 }
 
 /* ── 백그라운드 종목 갱신: 미리보기 UI를 건드리지 않고 watchData·리스트만 갱신 ── */
