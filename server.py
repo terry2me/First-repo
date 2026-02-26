@@ -280,8 +280,48 @@ def is_market_closed(market: str) -> bool:
         return now.hour > 15 or (now.hour == 15 and now.minute >= 30)
 
 
+def get_last_trading_date(market: str) -> str:
+    """
+    yfinance 가 확정 캔들을 제공하는 '마지막 거래일' 반환 (YYYY-MM-DD).
+
+    미국(US):
+      - 장 마감(EST 16:00) 이후 → 오늘(EST 기준)
+      - 장 마감 전(pre-market 포함) → 전 영업일
+    한국(KS):
+      - 장 마감(KST 15:30) 이후 → 오늘(KST 기준)
+      - 장 마감 전 → 전 영업일
+    주말은 직전 금요일을 반환.
+    """
+    if market == "US":
+        now = datetime.now(TZ_EST)
+        market_closed_today = (
+            now.weekday() < 5 and
+            (now.hour > 16 or (now.hour == 16 and now.minute >= 0))
+        )
+    else:
+        now = datetime.now(TZ_KST)
+        market_closed_today = (
+            now.weekday() < 5 and
+            (now.hour > 15 or (now.hour == 15 and now.minute >= 30))
+        )
+
+    if now.weekday() < 5 and market_closed_today:
+        # 오늘 장 마감 → 오늘이 마지막 거래일
+        return now.strftime("%Y-%m-%d")
+
+    # 장 마감 전이거나 주말 → 직전 평일(월~금)로 되돌림
+    candidate = now - timedelta(days=1)
+    while candidate.weekday() >= 5:  # 토(5), 일(6) 건너뜀
+        candidate -= timedelta(days=1)
+    return candidate.strftime("%Y-%m-%d")
+
+
 def get_today_str(market: str) -> str:
-    """시장 기준 오늘 날짜 문자열 반환 (YYYY-MM-DD)"""
+    """
+    시장 기준 '오늘' 날짜 문자열 반환 (YYYY-MM-DD).
+    장 마감 여부와 무관하게 현재 날짜만 반환 (fetch 범위 end 용도).
+    캐시 히트 판단에는 get_last_trading_date() 를 사용할 것.
+    """
     if market == "US":
         return datetime.now(TZ_EST).strftime("%Y-%m-%d")
     return datetime.now(TZ_KST).strftime("%Y-%m-%d")
@@ -375,12 +415,12 @@ def db_get_last_date(ticker: str, interval: str) -> Optional[str]:
 
 
 def db_has_today(ticker: str, interval: str, market: str) -> bool:
-    """오늘 날짜 데이터가 DB에 있는지 확인"""
-    today = get_today_str(market)
+    """마지막 거래일 데이터가 DB에 있는지 확인 (시장별 기준 적용)"""
+    last_trading = get_last_trading_date(market)
     conn  = get_db()
     row   = conn.execute(
         "SELECT 1 FROM stock_prices WHERE ticker=? AND date=? AND interval=?",
-        (ticker, today, interval)
+        (ticker, last_trading, interval)
     ).fetchone()
     conn.close()
     return row is not None
@@ -549,17 +589,21 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
     meta = db_get_meta(ticker)
     fund = db_get_fundamentals(ticker)
 
-    # 펀더멘털 갱신 필요 여부 판단 (하루 1회, 단 sector가 없으면 강제 갱신)
+    # 펀더멘털 갱신 필요 여부 판단 (마지막 거래일 1회, 단 sector가 없으면 강제 갱신)
     need_fund = force or fund is None
     if fund and fund.get("fetched_at"):
         try:
             fetched = datetime.fromisoformat(fund["fetched_at"])
-            if (datetime.now() - fetched).total_seconds() < 86400:
+            last_trading = get_last_trading_date(market)
+            fetched_date = fetched.strftime("%Y-%m-%d")
+            if fetched_date >= last_trading:
                 # sector가 null이면 강제 갱신 (마이그레이션)
                 if fund.get("sector") is None and market == "US":
                     need_fund = True
                 else:
                     need_fund = False
+            else:
+                need_fund = True
         except Exception:
             need_fund = True
 
