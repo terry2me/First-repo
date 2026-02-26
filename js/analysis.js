@@ -1310,7 +1310,7 @@ async function initAnalysisTab() {
         AnState.watchData[s.code] = null;
     });
 
-    await API.fetchMultiple(allStocks, AnState.candleCount, AnState.listInterval, (code, res, err) => {
+    await API.fetchMultipleFast(allStocks, AnState.candleCount, AnState.listInterval, (code, res, err) => {
       done++;
       if (res) {
         AnState.watchData[code] = Indicators.analyzeAll(res);

@@ -1502,8 +1502,8 @@ async function init() {
       }
     });
 
-    // 캔들 데이터 조회 (펀더멘털은 백그라운드 실행 — 로딩 블로킹 안 함)
-    await API.fetchMultiple(allStocks, AppState.candleCount, AppState.listInterval, (code, res, err) => {
+    // 캔들 데이터 조회 — 초기 로딩은 DB 직접 조회(빠름), 새로고침만 yfinance 경유
+    await API.fetchMultipleFast(allStocks, AppState.candleCount, AppState.listInterval, (code, res, err) => {
       done++;
       if (res) {
         AppState.watchData[code] = Indicators.analyzeAll(res);

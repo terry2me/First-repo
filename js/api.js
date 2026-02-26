@@ -141,6 +141,39 @@ const API = (() => {
     });
   }
 
+  /* ── 초기 로딩 전용: 개별 /api/stock 병렬 조회 (DB 캐시 최우선) ───────
+   * fetchMultiple(새로고침용)과 달리 /api/refresh를 거치지 않아 빠름.
+   * DB에 오늘 데이터가 있으면 yfinance 호출 없이 즉시 반환.
+   * concurrency: 동시 요청 수 (기본 5) — yfinance 블록 방지용.
+   * ────────────────────────────────────────────────────────────────── */
+  async function fetchMultipleFast(stocks, candleCount, interval, onProgress, concurrency = 5) {
+    if (!stocks || stocks.length === 0) return [];
+
+    const results = new Array(stocks.length).fill(null);
+
+    // concurrency 만큼 동시 실행하는 큐
+    let idx = 0;
+    async function worker() {
+      while (idx < stocks.length) {
+        const i = idx++;
+        const s = stocks[i];
+        try {
+          const data = await fetchStock(s.code, candleCount, interval, s.market || null);
+          results[i] = data;
+          onProgress?.(s.code, data, null);
+        } catch (e) {
+          results[i] = null;
+          onProgress?.(s.code, null, e);
+        }
+      }
+    }
+
+    // concurrency 개의 worker를 동시에 실행
+    const workers = Array.from({ length: Math.min(concurrency, stocks.length) }, worker);
+    await Promise.all(workers);
+    return results;
+  }
+
   /* ── 서버 응답 → app.js 호환 형식으로 정규화 ────────────
    * 서버는 { date, close } 형태로 캔들을 전달.
    * app.js / indicators.js 는 candles[i].close 를 사용하므로 호환됨.
@@ -232,6 +265,7 @@ const API = (() => {
   return {
     fetchStock,
     fetchMultiple,
+    fetchMultipleFast,
     resolveMarkets,
     fetchFundamentals,
     fetchFundamentalsBatch,
