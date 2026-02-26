@@ -1,14 +1,21 @@
-"""
-server.py — FastAPI 백엔드 (yfinance + SQLite)
+"""server.py — FastAPI 백엔드 (yfinance + SQLite)
 
-구조:
-  - SQLite DB: stock_prices / stock_meta / stock_fundamentals
-  - 조회 로직:
-      DB에 오늘 날짜 있음 → DB만 읽어서 반환
-      DB에 오늘 날짜 없음 → yfinance로 마지막날짜 포함~오늘 조회 → DB 저장 → DB 읽어서 반환
-  - 새로고침: 등록 종목 전체 순차 배치 (0.5초 딜레이)
-  - 스케줄러: 매일 04:00 KST 전체 종목 자동 업데이트 (1d + 1wk)
-  - 정적 파일: index.html / css / js 서빙 (포트 8000)
+API 구조 (6개):
+  POST /api/stock        — 단일 종목: DB 우선, 없으면 yfinance → DB 저장 → 반환
+  POST /api/stock/batch  — 배치 조회: DB only, 서버 내부 병렬, yfinance 절대 없음
+  GET  /api/config       — 탭 목록 + 설정값 일괄 반환
+  POST /api/config       — 탭/설정 변경 upsert (전체 상태 덮어쓰기)
+  POST /api/sp500/sync   — GitHub CSV → 티커 파싱 → S&P500 탭 upsert
+  GET  /api/health       — 서버 상태
+
+DB 테이블:
+  stock_prices      — 주가 (ticker, interval, date, OHLCV)
+  stock_meta        — 종목명·통화·섹터
+  stock_fundamentals— PE·PBR·EPS·Beta 등
+  _kv_store         — 탭(bb_tabs) + 설정(bb_settings) KV 저장소
+
+스케줄러: 매일 04:00 KST 전체 종목 자동 업데이트 (1d + 1wk)
+정적 파일: index.html / css / js 서빙 (포트 8000)
 """
 
 import sqlite3
@@ -17,6 +24,8 @@ import threading
 import traceback
 import uuid
 import json
+import asyncio
+import concurrent.futures
 from contextlib import asynccontextmanager
 from datetime import datetime, date, timedelta
 from pathlib import Path
@@ -77,6 +86,9 @@ refresh_status = {
     "last_finished": None,
 }
 refresh_lock = threading.Lock()
+
+# ── ThreadPoolExecutor (batch 병렬 처리용) ────────────────────────
+_executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
 
 
 # ══════════════════════════════════════════════════════════
@@ -153,9 +165,7 @@ def init_db():
     except Exception:
         pass
 
-    # ── Genspark Table API 호환: 동적 KV 저장소 ──────────────
-    # storage.js 가 tables/{table_name} 으로 호출하는 경로를 처리
-    # 각 테이블은 _kv_store 에 JSON blob 으로 저장
+    # ── KV 저장소 (레거시 /tables/* 호환 + config) ─────────────
     c.execute("""
         CREATE TABLE IF NOT EXISTS _kv_store (
             table_name TEXT NOT NULL,
@@ -171,12 +181,7 @@ def init_db():
 
 
 # ══════════════════════════════════════════════════════════
-#  Genspark Table API 호환 라우터
-#  storage.js 가 사용하는 REST 인터페이스를 그대로 구현:
-#    GET    /tables/{name}?limit=500   → { data: [...] }
-#    POST   /tables/{name}             → { id, ...fields }
-#    PATCH  /tables/{name}/{id}        → { id, ...fields }
-#    DELETE /tables/{name}/{id}        → 204
+#  KV 헬퍼 (스케줄러 / sp500/sync 내부 전용)
 # ══════════════════════════════════════════════════════════
 
 def _kv_get_all(table_name: str, limit: int = 500) -> list[dict]:
@@ -249,36 +254,6 @@ def _kv_delete(table_name: str, row_id: str) -> bool:
     conn.commit()
     conn.close()
     return cur.rowcount > 0
-
-
-@app.get("/tables/{table_name}")
-async def table_get(table_name: str, limit: int = 500):
-    rows = _kv_get_all(table_name, limit)
-    return {"data": rows, "total": len(rows)}
-
-
-@app.post("/tables/{table_name}")
-async def table_post(table_name: str, request: Request):
-    body = await request.json()
-    row  = _kv_insert(table_name, dict(body))
-    return row
-
-
-@app.patch("/tables/{table_name}/{row_id}")
-async def table_patch(table_name: str, row_id: str, request: Request):
-    body = await request.json()
-    row  = _kv_patch(table_name, row_id, dict(body))
-    if row is None:
-        raise HTTPException(status_code=404, detail="Not found")
-    return row
-
-
-@app.delete("/tables/{table_name}/{row_id}")
-async def table_delete(table_name: str, row_id: str):
-    ok = _kv_delete(table_name, row_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Not found")
-    return JSONResponse(status_code=200, content={"ok": True})
 
 
 # ══════════════════════════════════════════════════════════
@@ -801,56 +776,50 @@ class StockRequest(BaseModel):
     market:       Optional[str] = None
     interval:     str = "1d"
     candle_count: int = 52
-    db_only:      bool = False   # True 이면 yfinance 호출 없이 DB만 읽음
 
-class RefreshRequest(BaseModel):
+
+class BatchRequest(BaseModel):
     stocks:       list[dict]   # [{ code, market }]
     interval:     str = "1d"
     candle_count: int = 52
-    db_only:      bool = False  # True: DB만 읽음 (인터벌 버튼 전환 시)
 
 
-# ── 단일 종목 조회 ─────────────────────────────────────────
+# ── 단일 종목 조회 ──────────────────────────────────────────
+# DB 우선, 없으면 yfinance → DB 저장 → 반환
+# 검색(B), 리스트 클릭(F), 일봉/주봉 미리보기(D/E) 모두 이 엔드포인트
 @app.post("/api/stock")
 async def get_stock(req: StockRequest):
-    """
-    종목 조회:
-    - db_only=False (기본): DB 우선, 없으면 yfinance 조회 후 저장
-    - db_only=True  (인터벌 버튼): DB에 데이터 있으면 → DB만 반환 (빠름)
-                                   DB에 데이터 없으면 → yfinance 폴백 후 저장
-                                   (interval 전환 시 미수집 데이터 자동 보완)
-    """
     market = req.market or resolve_market(req.code)
     ticker = resolve_ticker(req.code, market)
+    ok = ensure_prices(ticker, market, req.interval)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"{ticker} 데이터를 가져올 수 없습니다.")
+    ensure_meta_and_fundamentals(ticker, market)
+    return build_response(ticker, market, req.interval, req.candle_count)
 
-    if req.db_only:
-        # ── DB-only 모드 ────────────────────────────────────
-        prices = db_get_prices(ticker, req.interval, limit=req.candle_count + 60)
-        if prices:
-            # DB에 데이터 있음 → yfinance 호출 없이 즉시 반환
-            print(f"[DB-only] {ticker} ({req.interval}) {len(prices)}건")
-            return build_response(ticker, market, req.interval, req.candle_count)
-        else:
-            # DB에 해당 interval 데이터 없음 → yfinance 폴백 후 저장
-            print(f"[DB-only] {ticker} ({req.interval}) 데이터 없음 → yfinance 폴백")
-            ok = ensure_prices(ticker, market, req.interval)
-            if not ok:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"{ticker} 데이터를 가져올 수 없습니다."
-                )
-            ensure_meta_and_fundamentals(ticker, market)
-            return build_response(ticker, market, req.interval, req.candle_count)
-    else:
-        # ── 기본 모드: DB 우선, 없으면 yfinance ───────────
-        ok = ensure_prices(ticker, market, req.interval)
-        if not ok:
-            raise HTTPException(
-                status_code=404,
-                detail=f"{ticker} 데이터를 가져올 수 없습니다."
-            )
-        ensure_meta_and_fundamentals(ticker, market)
-        return build_response(ticker, market, req.interval, req.candle_count)
+
+# ── 배치 조회 (DB only, 서버 내부 병렬) ─────────────────────
+# 초기 접속(A), 일봉/주봉 리스트 갱신(D/E) 에서 사용
+# yfinance 절대 호출 안 함 — 데이터 없는 종목은 null 반환
+@app.post("/api/stock/batch")
+async def get_stock_batch(req: BatchRequest):
+    def _fetch_one(s: dict) -> dict:
+        code   = s.get("code", "")
+        market = s.get("market") or resolve_market(code)
+        ticker = resolve_ticker(code, market)
+        try:
+            prices = db_get_prices(ticker, req.interval, limit=req.candle_count + 60)
+            if not prices:
+                return {"code": code, "data": None}
+            data = build_response(ticker, market, req.interval, req.candle_count)
+            return {"code": code, "data": data}
+        except Exception as e:
+            return {"code": code, "data": None, "error": str(e)}
+
+    loop    = asyncio.get_event_loop()
+    futures = [loop.run_in_executor(_executor, _fetch_one, s) for s in req.stocks]
+    results = await asyncio.gather(*futures)
+    return {"results": list(results)}
 
 
 # ── 전체 새로고침 (백그라운드) ─────────────────────────────
@@ -941,95 +910,83 @@ async def _scheduled_daily_refresh():
     print(f"[scheduler] 자동 업데이트 완료 — {fin_kst} / {len(stocks)}종목")
 
 
-@app.post("/api/refresh")
-async def refresh_all(req: RefreshRequest, background_tasks: BackgroundTasks):
-    """등록된 모든 종목 일괄 최신화 (백그라운드)"""
-    if refresh_status["running"]:
-        return JSONResponse({"ok": False, "msg": "이미 새로고침 중입니다."})
-
-    background_tasks.add_task(_do_refresh, req.stocks, req.interval, req.candle_count)
-    return {"ok": True, "total": len(req.stocks)}
 
 
-@app.get("/api/refresh/status")
-async def get_refresh_status():
-    """새로고침 진행 상태 조회"""
-    return refresh_status
+# ══════════════════════════════════════════════════════════
+#  /api/config — 탭 + 설정 전담 (GET: 읽기, POST: 쓰기)
+# ══════════════════════════════════════════════════════════
 
-
-# ── 종목 일괄 조회 (새로고침 후 결과 반환) ────────────────
-@app.post("/api/stocks")
-async def get_stocks(req: RefreshRequest):
-    """
-    여러 종목을 한 번에 조회해서 반환
-    (refresh 완료 후 JS에서 결과 가져올 때 사용)
-    db_only=True: DB에 있는 데이터만 반환 (yfinance 미호출)
-    """
-    results = []
-    for s in req.stocks:
-        market = s.get("market") or resolve_market(s["code"])
-        ticker = resolve_ticker(s["code"], market)
-        try:
-            if req.db_only:
-                prices = db_get_prices(ticker, req.interval, limit=req.candle_count + 60)
-                if not prices:
-                    # DB에 없으면 yfinance 폴백 후 저장
-                    print(f"[DB-only/stocks] {ticker} ({req.interval}) 없음 → yfinance 폴백")
-                    ensure_prices(ticker, market, req.interval)
-                    ensure_meta_and_fundamentals(ticker, market)
-                else:
-                    print(f"[DB-only/stocks] {ticker} ({req.interval}) {len(prices)}건")
-            data = build_response(ticker, market, req.interval, req.candle_count)
-            results.append({"ok": True, "code": s["code"], "data": data})
-        except Exception as e:
-            results.append({"ok": False, "code": s["code"], "error": str(e)})
-    return {"results": results}
-
-
-# ── 펀더멘털 배치 조회 ────────────────────────────────────
-class FundBatchRequest(BaseModel):
-    tickers: list[str]   # ["AAPL", "005930", "MSFT"] 형태
-
-@app.post("/api/fundamentals")
-async def get_fundamentals_batch(req: FundBatchRequest):
-    """
-    app.js _fetchAllFundamentals() 에서 호출.
-    ticker 목록을 받아 DB에 있는 펀더멘털 반환.
-    DB에 없거나 하루 이상 지난 항목은 yfinance에서 갱신.
-    반환: { results: { ticker: { trailingPE, eps, beta, ... } } }
-    """
-    results = {}
-    for raw_ticker in req.tickers:
-        code   = raw_ticker.upper().replace(".KS", "").replace(".KQ", "")
-        market = resolve_market(raw_ticker)
-        ticker = resolve_ticker(code, market)
-
-        # 메타/펀더멘털 확보 (필요시 yfinance 조회)
-        ensure_meta_and_fundamentals(ticker, market)
-
-        fund = db_get_fundamentals(ticker)
-        if fund:
-            results[raw_ticker.upper()] = {
-                "trailingPE":   fund.get("trailing_pe"),
-                "forwardPE":    fund.get("forward_pe"),
-                "pbr":          fund.get("pbr"),
-                "evToEbitda":   fund.get("ev_to_ebitda"),
-                "dividendYield":fund.get("dividend_yield"),
-                "eps":          fund.get("eps"),
-                "beta":         fund.get("beta"),
-                "sector":       fund.get("sector"),
-                "_fetchFailed": False,
+@app.get("/api/config")
+async def config_get():
+    """탭 목록 + 설정값 일괄 반환."""
+    tab_rows = _kv_get_all("bb_tabs")
+    tabs = sorted(
+        [
+            {
+                "uid":        r["id"],
+                "name":       r.get("name", "기본"),
+                "sort_order": r.get("sort_order", 0),
+                "stocks":     json.loads(r["stocks"]) if isinstance(r.get("stocks"), str)
+                              else (r.get("stocks") or []),
             }
-        else:
-            results[raw_ticker.upper()] = {
-                "trailingPE": None, "eps": None, "beta": None,
-                "_fetchFailed": True,
-            }
+            for r in tab_rows
+        ],
+        key=lambda t: t["sort_order"]
+    )
+    if not tabs:
+        row = _kv_insert("bb_tabs", {"name": "기본", "sort_order": 0, "stocks": "[]"})
+        tabs = [{"uid": row["id"], "name": "기본", "sort_order": 0, "stocks": []}]
 
-    return {"results": results}
+    setting_rows = _kv_get_all("bb_settings")
+    settings: dict = {}
+    for r in setting_rows:
+        k = r.get("key")
+        if k and k != r.get("id"):
+            settings[k] = r.get("value", "")
+
+    return {"tabs": tabs, "settings": settings}
 
 
-# ── 헬스 체크 ──────────────────────────────────────────────
+class ConfigRequest(BaseModel):
+    tabs:     Optional[list[dict]] = None
+    settings: Optional[dict]       = None
+
+
+@app.post("/api/config")
+async def config_post(req: ConfigRequest):
+    """탭/설정 upsert. tabs: 전체 교체, settings: 키별 upsert."""
+    if req.tabs is not None:
+        for r in _kv_get_all("bb_tabs"):
+            _kv_delete("bb_tabs", r["id"])
+        for tab in req.tabs:
+            _kv_insert("bb_tabs", {
+                "id":         tab.get("uid") or str(uuid.uuid4()),
+                "name":       tab.get("name", "기본"),
+                "sort_order": tab.get("sort_order", 0),
+                "stocks":     json.dumps(tab.get("stocks", []), ensure_ascii=False),
+            })
+
+    if req.settings is not None:
+        setting_rows = _kv_get_all("bb_settings")
+        key_to_id = {
+            r.get("key"): r["id"]
+            for r in setting_rows
+            if r.get("key") and r.get("key") != r.get("id")
+        }
+        for k, v in req.settings.items():
+            if k in key_to_id:
+                _kv_patch("bb_settings", key_to_id[k], {"value": str(v)})
+            else:
+                _kv_insert("bb_settings", {"key": k, "value": str(v)})
+
+    return {"ok": True}
+
+
+# ── 헬스 체크 ─────────────────────────────────────────────
+@app.get("/api/health")
+async def health():
+    return {"ok": True, "time": datetime.now().isoformat()}
+
 @app.get("/api/health")
 async def health():
     return {"ok": True, "time": datetime.now().isoformat()}

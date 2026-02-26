@@ -264,18 +264,14 @@ function initSearch() {
 }
 
 async function doSearch(input, dbOnly = false) {
-  // dbOnly=true (일봉/주봉 전환): 로딩 표시·화면 지우기 없이 즉시 DB 데이터로 교체
-  // dbOnly=false (검색 버튼):     기존대로 화면 초기화 후 로딩 표시
-  if (!dbOnly) { hidePreview(); hideSearchError(); showSearchLoading(true); }
+  // 로딩 표시 없이 즉시 조회 (B 검색, F 행 클릭, D/E 일봉/주봉 미리보기 공통)
+  hideSearchError();
   AppState.previewCode = input.toUpperCase();
   try {
-    const raw      = await API.fetchStock(input, AppState.candleCount, AppState.previewInterval, null, dbOnly);
+    const raw      = await API.fetchStock(input, AppState.candleCount, AppState.previewInterval);
     const analyzed = Indicators.analyzeAll(raw);
     AppState.previewCode = analyzed.code;
     AppState.previewData = analyzed;
-    // 리스트 BB위치·주가는 listInterval 기준 고정
-    // listInterval === previewInterval 일 때만 watchData 갱신
-    // (인터벌 전환 중 doRefreshAll이 별도로 리스트 갱신하므로 중복 갱신 불필요)
     if (Object.prototype.hasOwnProperty.call(AppState.watchData, analyzed.code)) {
       if (AppState.previewInterval === AppState.listInterval) {
         AppState.watchData[analyzed.code] = analyzed;
@@ -286,9 +282,7 @@ async function doSearch(input, dbOnly = false) {
     renderPreview(analyzed);
   } catch (err) {
     AppState.previewCode = null;
-    if (!dbOnly) showSearchError(err.message || '데이터를 가져오는 데 실패했습니다.');
-  } finally {
-    if (!dbOnly) showSearchLoading(false);
+    showSearchError(err.message || '데이터를 가져오는 데 실패했습니다.');
   }
 }
 
@@ -636,12 +630,10 @@ async function doRefreshAll(dbOnly = false) {
   });
   if (!allStocks.length) return;
 
-  const loadEl = document.getElementById('listLoading');
-
   if (dbOnly) {
     /* ── DB 전용 (일봉/주봉 버튼 클릭) ──────────────────────────────────
      * 로딩 오버레이 없이 백그라운드에서 조용히 리스트 갱신.
-     * 현재 리스트는 그대로 유지되다가 종목별로 즉시 교체됨.
+     * POST /api/stock/batch — 서버 내부 병렬, yfinance 절대 없음
      * ─────────────────────────────────────────────────────────────────── */
     allStocks.forEach(s => {
       if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
@@ -649,20 +641,18 @@ async function doRefreshAll(dbOnly = false) {
       }
     });
 
-    const onProgressDB = (code, res, err) => {
-      if (res) {
-        const analyzed = Indicators.analyzeAll(res);
-        AppState.watchData[code] = analyzed;
-        _refreshListItem(code);
-        if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
-      } else {
-        console.warn(`[DB-only ${code}] 조회 실패:`, err?.message);
+    await API.fetchBatch(allStocks, AppState.candleCount, AppState.listInterval,
+      (code, res, err) => {
+        if (res) {
+          const analyzed = Indicators.analyzeAll(res);
+          AppState.watchData[code] = analyzed;
+          _refreshListItem(code);
+          if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+        } else {
+          console.warn(`[batch ${code}] 조회 실패:`, err?.message);
+        }
       }
-    };
-
-    // concurrency=20: DB 조회는 ~20ms로 빠르므로 높은 병렬도 사용
-    await API.fetchMultipleFast(allStocks, AppState.candleCount, AppState.listInterval,
-                                onProgressDB, 20, true);
+    );
 
     setLastUpdated();
     renderList();
@@ -670,11 +660,12 @@ async function doRefreshAll(dbOnly = false) {
       AppState.previewData = AppState.watchData[AppState.previewCode];
       renderPreview(AppState.previewData);
     }
-    return;  // 펀더멘털은 이미 캐시에 있으므로 재조회 불필요
+    return;
   }
 
   /* ── 새로고침 버튼 (yfinance 포함) ──────────────────────────────────── */
-  const total = allStocks.length;
+  const loadEl = document.getElementById('listLoading');
+  const total  = allStocks.length;
   let done = 0;
   const setMsg = msg => { const s = loadEl.querySelector('span'); if (s) s.textContent = msg; };
   loadEl.style.display = 'flex';
@@ -686,22 +677,21 @@ async function doRefreshAll(dbOnly = false) {
     }
   });
 
-  const onProgress = (code, res, err) => {
-    done++;
-    if (res) {
-      const analyzed = Indicators.analyzeAll(res);
-      AppState.watchData[code] = analyzed;
-      _refreshListItem(code);
-      if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
-    } else {
-      console.warn(`[${code}] 조회 실패:`, err?.message);
-    }
-    setMsg(`데이터 로드 중... (${done}/${total})`);
-  };
-
-  // 새로고침: fetchMultiple (/api/refresh → yfinance → /api/stocks)
+  // 새로고침: 개별 POST /api/stock 순차 호출 (DB 우선, 없으면 yfinance)
   await API.fetchMultiple(allStocks, AppState.candleCount, AppState.listInterval,
-                          onProgress, false);
+    (code, res, err) => {
+      done++;
+      if (res) {
+        const analyzed = Indicators.analyzeAll(res);
+        AppState.watchData[code] = analyzed;
+        _refreshListItem(code);
+        if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+      } else {
+        console.warn(`[${code}] 조회 실패:`, err?.message);
+      }
+      setMsg(`데이터 로드 중... (${done}/${total})`);
+    }
+  );
 
   loadEl.style.display = 'none';
   setLastUpdated();
@@ -710,85 +700,38 @@ async function doRefreshAll(dbOnly = false) {
     AppState.previewData = AppState.watchData[AppState.previewCode];
     renderPreview(AppState.previewData);
   }
-
-  // 펀더멘털 백그라운드 갱신 (로딩 오버레이 닫힌 후 순차 실행)
-  _fetchAllFundamentals(allStocks).catch(e => console.warn('[펀더멘털 bg]', e?.message));
 }
 
-/* ── 전체 종목 펀더멘털 배치 조회 ──────────────────────────────────
- *
- * API.fetchFundamentalsBatch(tickers) 를 사용:
- *  - Apps Script에 ?tickers=A,B,...,J (10개) 를 한 번에 전송
- *  - Apps Script 내부에서 GOOGLEFINANCE 2D 배치 계산 → 1회 flush/sleep
- *  - 10개 단위 청크를 순차 실행 (Apps Script 동시 실행 충돌 방지)
- *
- * 기존 순차 방식(27개 × ~2.3s ≈ 62s) 대비:
- *  → 배치 방식: ceil(27/10) = 3청크 × ~5s ≈ 15s 이내
+/* ── 펀더멘털 → AppState.fundamentals 동기화
+ * watchData에 이미 포함된 펀더멘털 값을 AppState.fundamentals에 반영.
+ * (API /api/stock 응답에 펀더멘털이 포함되므로 별도 배치 조회 불필요)
  * ────────────────────────────────────────────────────────────────── */
-async function _fetchAllFundamentals(stocks) {
-  if (!stocks.length) return;
-
-  // 중복 코드 제거 (여러 탭에 같은 종목 있을 경우)
-  const seen = new Set();
-  const uniq = stocks.filter(s => {
-    const key = s.code.toUpperCase().replace(/\.(KS|KQ)$/, '');
-    if (seen.has(key)) return false;
-    seen.add(key); return true;
-  });
-
-  // ticker 문자열 배열 생성
-  const tickers = uniq.map(s => s.code.toUpperCase());
-
-  // code → stock 역참조 Map
-  const stockByTicker = new Map(uniq.map(s => [s.code.toUpperCase(), s]));
-
-  const total  = tickers.length;
-  const CHUNK  = 10;
-  const chunks = [];
-  for (let i = 0; i < total; i += CHUNK) chunks.push(tickers.slice(i, i + CHUNK));
-
-  console.log(`[펀더멘털] 배치 조회 시작 ${total}건 → ${chunks.length}청크 × ${CHUNK}개`);
-
-  for (let ci = 0; ci < chunks.length; ci++) {
-    const chunk = chunks[ci];
-    console.log(`[펀더멘털] 청크 ${ci + 1}/${chunks.length} 요청 (${chunk.join(', ')})`);
-
-    // 배치 Map 반환: Map<ticker → { trailingPE, eps, beta, _fetchFailed }>
-    const batchResult = await API.fetchFundamentalsBatch(chunk);
-
-    for (const ticker of chunk) {
-      const s        = stockByTicker.get(ticker);
-      const cacheKey = ticker.replace(/\.(KS|KQ)$/, '');
-      const data     = batchResult.get(ticker) ?? { ..._EMPTY_FUND_PLACEHOLDER, _fetchFailed: true };
-
-      if (data._fetchFailed) {
-        console.warn(`[펀더멘털] ${cacheKey} 실패`);
-      } else {
-        // 독립 객체로 저장 — 공유 참조 오염 방지
-        const fd = { ...data };
-        AppState.fundamentals[s.code]   = fd;
-        AppState.fundamentals[cacheKey] = fd;
-        if (/^\d{5,6}$/.test(cacheKey)) {
-          AppState.fundamentals[cacheKey + '.KS'] = fd;
-        }
-        _refreshListItem(s.code);
-        _saveFundamentalToServer(cacheKey, fd);
-        console.info(`[펀더멘털] ${cacheKey} ✓  PE=${data.trailingPE}  EPS=${data.eps}  Beta=${data.beta}`);
-      }
+function _syncFundamentalsFromWatchData() {
+  for (const [code, data] of Object.entries(AppState.watchData)) {
+    if (!data) continue;
+    const fd = {
+      trailingPE:   data.trailingPE   ?? null,
+      forwardPE:    data.forwardPE    ?? null,
+      pbr:          data.pbr          ?? null,
+      evToEbitda:   data.evToEbitda   ?? null,
+      dividendYield:data.dividendYield ?? null,
+      eps:          data.eps          ?? null,
+      beta:         data.beta         ?? null,
+      sector:       data.sector       ?? null,
+    };
+    const cacheKey = code.replace(/\.(KS|KQ)$/, '');
+    AppState.fundamentals[code]     = fd;
+    AppState.fundamentals[cacheKey] = fd;
+    if (/^\d{5,6}$/.test(cacheKey)) {
+      AppState.fundamentals[cacheKey + '.KS'] = fd;
     }
-
-    console.log(`[펀더멘털] 청크 ${ci + 1} 완료`);
   }
-
-  console.log(`[펀더멘털] 전체 ${total}건 조회 완료`);
 }
 
-// _fetchAllFundamentals 내부에서 사용하는 빈 펀더멘털 플레이스홀더
-const _EMPTY_FUND_PLACEHOLDER = Object.freeze({
-  trailingPE: null, forwardPE: null, pbr: null,
-  evToEbitda: null, dividendYield: null,
-  eps: null, beta: null, sector: null,
-});
+// 하위 호환 — app.js 내 일부 코드가 참조
+async function _fetchAllFundamentals(stocks) {
+  _syncFundamentalsFromWatchData();
+}
 
 /* ── 이름 교정: API에서 가져온 정제된 이름이 저장된 이름과 다르면 서버 업데이트 ── */
 function _fixStockNameIfNeeded(code, cleanName) {
@@ -1535,7 +1478,7 @@ function initSP500Btn() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      // ② Storage 재초기화 — 서버 데이터 최신화
+      // ② config 재로드 — 서버 데이터 최신화
       await Storage.init();
 
       // ③ S&P500 탭으로 전환
@@ -1596,39 +1539,28 @@ async function init() {
   }));
 
   if (allStocks.length) {
-    const total = allStocks.length;
-    let done = 0;
-    const loadEl = document.getElementById('listLoading');
-    const setMsg = msg => { const s = loadEl.querySelector('span'); if (s) s.textContent = msg; };
-    loadEl.style.display = 'flex';
-    setMsg(`데이터 로드 중... (0/${total})`);
-
-    // watchData에 모든 종목 키 선점 (null) — hasOwnProperty 체크 및 공란 렌더링 일관성 보장
+    // watchData에 모든 종목 키 선점 (null)
     allStocks.forEach(s => {
       if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
         AppState.watchData[s.code] = null;
       }
     });
 
-    // 캔들 데이터 조회 — 초기 로딩은 DB 직접 조회(빠름), 새로고침만 yfinance 경유
-    await API.fetchMultipleFast(allStocks, AppState.candleCount, AppState.listInterval, (code, res, err) => {
-      done++;
-      if (res) {
-        AppState.watchData[code] = Indicators.analyzeAll(res);
-        _refreshListItem(code);
-      } else {
-        console.warn(`[${code}] 초기 로드 실패:`, err?.message);
+    // 초기 로딩: POST /api/stock/batch (DB only, 서버 내부 병렬)
+    // 로딩 표시 없음 — 종목별로 즉시 교체
+    await API.fetchBatch(allStocks, AppState.candleCount, AppState.listInterval,
+      (code, res, err) => {
+        if (res) {
+          AppState.watchData[code] = Indicators.analyzeAll(res);
+          _refreshListItem(code);
+        } else {
+          console.warn(`[${code}] 초기 로드 실패:`, err?.message);
+        }
       }
-      setMsg(`데이터 로드 중... (${done}/${total})`);
-    });
+    );
 
-    loadEl.style.display = 'none';
     setLastUpdated();
-    // 캔들 로딩 완료 후 renderList 재호출 — AppState.fundamentals는 이미 채워진 상태
     renderList();
-
-    // 펀더멘털 백그라운드 갱신 (캔들 로딩 완료 후 순차 실행)
-    _fetchAllFundamentals(allStocks).catch(e => console.warn('[펀더멘털 bg]', e?.message));
   }
 }
 
