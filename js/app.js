@@ -14,7 +14,7 @@
 const AppState = {
   candleCount:     52,    // 고정값 — UI 버튼 없음
   previewInterval: '1d',  // 좌측 미리보기 전용 (일봉/주봉 토글)
-  listInterval:    '1d',  // 우측 리스트 전용 — 항상 일봉 고정
+  listInterval:    '1d',  // 우측 리스트 — previewInterval 과 동기화
   previewData:  null,
   previewCode:  null,
   watchData:    {},
@@ -112,22 +112,25 @@ function showToast(msg, type = 'info') {
 
 /* ══════════════════════════════════════════════
    일봉/주봉 토글 — 좌측 미리보기 전용
-   (우측 리스트는 listInterval='1d' 고정)
+   (우측 리스트는 previewInterval 과 동기화)
 ══════════════════════════════════════════════ */
 function initHeaderControls() {
   // 저장된 미리보기 인터벌 복원
   AppState.previewInterval = Storage.getInterval();
+  AppState.listInterval    = AppState.previewInterval;  // 리스트도 동일 interval 로 시작
   document.querySelectorAll('.interval-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.interval === AppState.previewInterval);
     btn.addEventListener('click', async () => {
       if (AppState.previewInterval === btn.dataset.interval) return;
       AppState.previewInterval = btn.dataset.interval;
+      AppState.listInterval    = btn.dataset.interval;  // 리스트 interval 동기화
       await Storage.setInterval(AppState.previewInterval);
       document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      // 미리보기 종목이 있으면 해당 인터벌로 DB만 읽어서 재표시
+      // 미리보기: DB만 읽어서 재표시
       if (AppState.previewCode) doSearch(AppState.previewCode, true);
-      // 우측 리스트는 재조회 안 함 (listInterval = '1d' 고정)
+      // 리스트: 새 interval 로 전체 재조회
+      doRefreshAll();
     });
   });
 
@@ -270,9 +273,9 @@ async function doSearch(input, dbOnly = false) {
     const analyzed = Indicators.analyzeAll(raw);
     AppState.previewCode = analyzed.code;
     AppState.previewData = analyzed;
-    // 리스트 BB위치는 항상 listInterval(1d) 기준 고정
-    // previewInterval 이 listInterval 과 같을 때만 watchData 갱신
-    // (주봉 데이터로 watchData를 덮어쓰면 BB위치가 주봉 기준으로 오염됨)
+    // 리스트 BB위치·주가는 listInterval 기준 고정
+    // listInterval === previewInterval 일 때만 watchData 갱신
+    // (인터벌 전환 중 doRefreshAll이 별도로 리스트 갱신하므로 중복 갱신 불필요)
     if (Object.prototype.hasOwnProperty.call(AppState.watchData, analyzed.code)) {
       if (AppState.previewInterval === AppState.listInterval) {
         AppState.watchData[analyzed.code] = analyzed;
@@ -584,7 +587,7 @@ async function showStockPreview(code) {
 /* ── 백그라운드 종목 갱신: 미리보기 UI를 건드리지 않고 watchData·리스트만 갱신 ── */
 async function _bgRefreshStock(input, registeredCode) {
   try {
-    // listInterval 기준으로 fetch (BB 위치, 가격 등락 계산용)
+    // listInterval(previewInterval과 동기화) 기준으로 fetch
     const raw      = await API.fetchStock(input, AppState.candleCount, AppState.listInterval);
     const analyzed = Indicators.analyzeAll(raw);
     const code     = registeredCode || analyzed.code;
