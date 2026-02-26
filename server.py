@@ -779,6 +779,7 @@ class StockRequest(BaseModel):
     market:       Optional[str] = None
     interval:     str = "1d"
     candle_count: int = 52
+    db_only:      bool = False   # True 이면 yfinance 호출 없이 DB만 읽음
 
 class RefreshRequest(BaseModel):
     stocks:       list[dict]   # [{ code, market }]
@@ -791,21 +792,34 @@ class RefreshRequest(BaseModel):
 async def get_stock(req: StockRequest):
     """
     종목 조회:
-    1. DB 오늘 데이터 있으면 → DB 반환
-    2. 없으면 → yfinance 조회 → DB 저장 → DB 반환
+    - db_only=False (기본): DB 우선, 없으면 yfinance 조회 후 저장
+    - db_only=True        : DB만 읽음, yfinance 호출 없음
+                           (일봉/주봉 버튼 전환 시 사용)
     """
     market = req.market or resolve_market(req.code)
     ticker = resolve_ticker(req.code, market)
 
-    # 가격 확보 (DB 우선, 없으면 yfinance)
-    ok = ensure_prices(ticker, market, req.interval)
-    if not ok:
-        raise HTTPException(status_code=404, detail=f"{ticker} 데이터를 가져올 수 없습니다.")
-
-    # 메타/펀더멘털 확보
-    ensure_meta_and_fundamentals(ticker, market)
-
-    return build_response(ticker, market, req.interval, req.candle_count)
+    if req.db_only:
+        # ── DB-only 모드: yfinance 미호출 ──────────────────
+        prices = db_get_prices(ticker, req.interval, limit=req.candle_count + 60)
+        if not prices:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{ticker} DB에 {req.interval} 데이터가 없습니다."
+            )
+        print(f"[DB-only] {ticker} ({req.interval}) {len(prices)}건")
+        ensure_meta_and_fundamentals(ticker, market)
+        return build_response(ticker, market, req.interval, req.candle_count)
+    else:
+        # ── 기본 모드: DB 우선, 없으면 yfinance ───────────
+        ok = ensure_prices(ticker, market, req.interval)
+        if not ok:
+            raise HTTPException(
+                status_code=404,
+                detail=f"{ticker} 데이터를 가져올 수 없습니다."
+            )
+        ensure_meta_and_fundamentals(ticker, market)
+        return build_response(ticker, market, req.interval, req.candle_count)
 
 
 # ── 전체 새로고침 (백그라운드) ─────────────────────────────

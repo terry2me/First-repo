@@ -125,8 +125,8 @@ function initHeaderControls() {
       await Storage.setInterval(AppState.previewInterval);
       document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      // 미리보기 종목이 있으면 해당 인터벌로 재조회
-      if (AppState.previewCode) doSearch(AppState.previewCode);
+      // 미리보기 종목이 있으면 해당 인터벌로 DB만 읽어서 재표시
+      if (AppState.previewCode) doSearch(AppState.previewCode, true);
       // 우측 리스트는 재조회 안 함 (listInterval = '1d' 고정)
     });
   });
@@ -260,11 +260,11 @@ function initSearch() {
   });
 }
 
-async function doSearch(input) {
+async function doSearch(input, dbOnly = false) {
   hidePreview(); hideSearchError(); showSearchLoading(true);
   AppState.previewCode = input.toUpperCase();
   try {
-    const raw      = await API.fetchStock(input, AppState.candleCount, AppState.previewInterval);
+    const raw      = await API.fetchStock(input, AppState.candleCount, AppState.previewInterval, null, dbOnly);
     const analyzed = Indicators.analyzeAll(raw);
     AppState.previewCode = analyzed.code;
     AppState.previewData = analyzed;

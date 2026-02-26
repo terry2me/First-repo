@@ -45,7 +45,7 @@ const API = (() => {
   /* ── 단일 종목 조회 ──────────────────────────────────────
    * 기존 fetchStock(input, candleCount, interval, forceMarket) 시그니처 유지
    * ─────────────────────────────────────────────────────── */
-  async function fetchStock(input, candleCount, interval = '1d', forceMarket = null) {
+  async function fetchStock(input, candleCount, interval = '1d', forceMarket = null, dbOnly = false) {
     const code   = input.trim().toUpperCase().replace(/\.(KS|KQ)$/i, '');
     const market = forceMarket || _guessMarket(code);
 
@@ -57,6 +57,7 @@ const API = (() => {
         market,
         interval,
         candle_count: candleCount,
+        db_only:      dbOnly,   // true면 yfinance 호출 없이 DB만 읽음
       }),
     });
 
