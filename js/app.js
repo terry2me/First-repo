@@ -748,61 +748,6 @@ function _fixStockNameIfNeeded(code, cleanName) {
   );
 }
 
-/* ══════════════════════════════════════════════
-   컬럼 너비 자동 조정 (헤더 + 값 중 최대폭)
-   BB위치 컬럼(col-bb)은 제외 — 최소 너비 고정
-══════════════════════════════════════════════ */
-function autoFitColumns(headerSel, listSel) {
-  const header = document.querySelector(headerSel);
-  const list   = document.querySelector(listSel);
-  if (!header || !list) return;
-
-  // BB 컬럼은 자동 조정 제외할 클래스
-  const SKIP_CLASSES = new Set(['col-bb', 'col-check', 'col-action', 'col-name']);
-
-  // 헤더의 각 col-header 순회
-  header.querySelectorAll('.col-header').forEach(hCell => {
-    // skip 대상이면 패스
-    const skip = [...hCell.classList].some(c => SKIP_CLASSES.has(c));
-    if (skip) return;
-
-    // CSS 변수명 특정: 헤더 셀의 클래스에서 col-XXX 추출
-    const colClass = [...hCell.classList].find(c => c.startsWith('col-') && c !== 'col-header');
-    if (!colClass) return;
-
-    // 헤더 텍스트 너비 측정
-    const sortSpan = hCell.querySelector('.sort-col');
-    const hWidth = sortSpan ? sortSpan.scrollWidth + 12 : hCell.scrollWidth;
-
-    // 동일 클래스 가진 행 셀들 너비 측정
-    let maxCellW = hWidth;
-    list.querySelectorAll(`.${colClass}`).forEach(cell => {
-      const w = cell.scrollWidth + 10; // 패딩 여유
-      if (w > maxCellW) maxCellW = w;
-    });
-
-    // CSS 변수 → var 이름 매핑
-    const cssVarMap = {
-      'col-trail-pe':   '--col-trail-pe',
-      'col-forward-pe': '--col-forward-pe',
-      'col-pbr':        '--col-pbr',
-      'col-ev-ebitda':  '--col-ev-ebitda',
-      'col-div-yield':  '--col-div-yield',
-      'col-eps':        '--col-eps',
-      'col-beta':       '--col-beta',
-      'col-sector':     '--col-sector',
-      'col-price':      '--col-price',
-      'col-today-chg':  '--col-today-chg',
-      'col-change':     '--col-change',
-      'col-alert':      '--col-alert',
-    };
-
-    const varName = cssVarMap[colClass];
-    if (varName) {
-      document.documentElement.style.setProperty(varName, maxCellW + 'px');
-    }
-  });
-}
 
 /* ══════════════════════════════════════════════
    우단 리스트 렌더링
@@ -839,9 +784,6 @@ function renderList() {
   });
   if (AppState.previewCode) highlightActiveRow(AppState.previewCode);
   updateDeleteBtn();
-
-  // 렌더링 완료 후 컬럼 너비 자동 조정 (BB위치 제외)
-  requestAnimationFrame(() => autoFitColumns('#listHeader', '#stockList'));
 }
 
 /* ── 리스트 행 생성 ── */

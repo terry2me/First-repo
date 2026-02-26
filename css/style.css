@@ -27,23 +27,23 @@
   --shadow-card: 0 4px 24px rgba(0,0,0,.4);
   --font: 'Noto Sans KR','Malgun Gothic',sans-serif;
 
-  /* 컬럼 너비 CSS 변수 */
-  --col-alert:      44px;
-  --col-name:      130px;
-  --col-price:      90px;
-  --col-today-chg:  72px;
-  --col-change:     72px;
-  --col-bb:        200px;
-  --col-action:     32px;
+  /* 컬럼 너비 CSS 변수 — 다닥다닥 고정 너비 */
+  --col-alert:      28px;
+  --col-name:      112px;
+  --col-price:      68px;
+  --col-today-chg:  58px;
+  --col-change:     58px;
+  --col-bb:        160px;
+  --col-action:     28px;
   /* 펀더멘털 컬럼 */
-  --col-trail-pe:   58px;
-  --col-forward-pe: 72px;
-  --col-pbr:        52px;
-  --col-ev-ebitda:  76px;
-  --col-div-yield:  48px;
-  --col-eps:        56px;
-  --col-beta:       52px;
-  --col-sector:    110px;
+  --col-trail-pe:   46px;
+  --col-forward-pe: 56px;
+  --col-pbr:        40px;
+  --col-ev-ebitda:  62px;
+  --col-div-yield:  40px;
+  --col-eps:        42px;
+  --col-beta:       40px;
+  --col-sector:     80px;
 
   /* 앱 탭바 높이 */
   --app-tab-bar-h: 38px;
@@ -773,10 +773,10 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 /* ══ 리스트 헤더 ══ */
 .list-header {
   display:flex; align-items:stretch;
-  padding:0 6px; background:var(--bg-card);
+  padding:0 4px; background:var(--bg-card);
   border-bottom:2px solid var(--border);
   font-size:11px; color:var(--text-muted); font-weight:600;
-  gap:4px; flex-shrink:0; user-select:none;
+  gap:0; flex-shrink:0; user-select:none;
   min-width: max-content;
   position: sticky;
   top: 0;
@@ -786,7 +786,7 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 /* 헤더 셀 — 가운데 정렬 */
 .col-header {
   position:relative; display:flex; align-items:center;
-  justify-content:center; padding:5px 4px; flex-shrink:0;
+  justify-content:center; padding:4px 2px; flex-shrink:0;
 }
 .col-check   { width:22px; flex-shrink:0; display:flex; align-items:center; }
 .col-header.col-alert     { width:var(--col-alert); }
@@ -806,8 +806,8 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 .col-header.col-action    { width:var(--col-action); font-size:10px; color:var(--text-muted); }
 
 .sort-col {
-  display:flex; align-items:center; gap:4px; cursor:pointer;
-  padding:2px 4px; border-radius:4px; transition:all .12s; white-space:nowrap;
+  display:flex; align-items:center; gap:2px; cursor:pointer;
+  padding:2px 2px; border-radius:4px; transition:all .12s; white-space:nowrap;
 }
 .sort-col:hover { background:var(--bg-hover); color:var(--text-primary); }
 .sort-icon { font-size:10px; color:var(--text-muted); }
@@ -829,9 +829,9 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 /* ── 컬럼 너비 (아이템) ── */
 .col-alert     { width:var(--col-alert);      flex-shrink:0; text-align:center; display:flex; align-items:center; justify-content:center; }
 .col-name      { width:var(--col-name);       flex-shrink:0; display:flex; align-items:baseline; gap:0; overflow:hidden; white-space:nowrap; }
-.col-price     { width:var(--col-price);      flex-shrink:0; text-align:center; }
-.col-today-chg { width:var(--col-today-chg);  flex-shrink:0; text-align:center; font-size:12px; }
-.col-change    { width:var(--col-change);     flex-shrink:0; text-align:center; }
+.col-price     { width:var(--col-price);      flex-shrink:0; text-align:center; padding:0 1px; }
+.col-today-chg { width:var(--col-today-chg);  flex-shrink:0; text-align:center; font-size:12px; padding:0 1px; }
+.col-change    { width:var(--col-change);     flex-shrink:0; text-align:center; padding:0 1px; }
 .col-bb        { width:var(--col-bb);         flex-shrink:0; min-width:160px; }
 .col-action    { width:var(--col-action);     flex-shrink:0; text-align:center; }
 
@@ -845,7 +845,7 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 4px;
+  padding: 0 2px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -862,8 +862,8 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 .col-sector     { width:var(--col-sector);     flex-shrink:0; font-size:11px; }
 
 .stock-item {
-  display:flex; align-items:center; padding:3px 6px;
-  gap:4px; border-bottom:1px solid var(--border-light);
+  display:flex; align-items:center; padding:2px 4px;
+  gap:0; border-bottom:1px solid var(--border-light);
   transition:background .12s; cursor:default;
   min-width:max-content;
 }
@@ -873,8 +873,8 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
   border-left:3px solid var(--accent);
 }
 .stock-item.row-active .item-name { color:#93c5fd; }
-.item-name  { font-size:12px; font-weight:600; display:inline; }
-.item-code  { font-size:10px; color:var(--text-muted); display:inline; margin-left:4px; }
+.item-name  { font-size:11px; font-weight:600; display:inline; }
+.item-code  { font-size:10px; color:var(--text-muted); display:inline; margin-left:2px; }
 .item-price { font-size:12px; font-weight:700; }
 .col-today-chg { font-size:12px; font-weight:600; }
 .col-today-chg.up   { color:var(--up); }

@@ -802,9 +802,6 @@ function anRenderList() {
   });
   if (AnState.previewCode) _anHighlightActiveRow(AnState.previewCode);
   anUpdateDeleteBtn();
-
-  // 렌더링 완료 후 컬럼 너비 자동 조정
-  requestAnimationFrame(() => autoFitColumns('#an-listHeader', '#an-stockList'));
 }
 
 function _anBuildListItem(stock, data) {
