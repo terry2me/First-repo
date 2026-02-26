@@ -897,7 +897,9 @@ function buildListItem(stock, data) {
       </button>
     </div>`;
 
-  item.querySelector(`#cb-${stock.code}`).addEventListener('change', e => {
+  // querySelector는 점(.)을 클래스로 해석하므로 attribute 선택자 사용 (BRK.B, BF.B 등 대응)
+  const cbEl = item.querySelector(`input[type="checkbox"][data-code="${stock.code}"]`);
+  if (cbEl) cbEl.addEventListener('change', e => {
     if (e.target.checked) AppState.checkedCodes.add(stock.code);
     else AppState.checkedCodes.delete(stock.code);
     syncCheckAll(); updateDeleteBtn();

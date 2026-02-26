@@ -907,8 +907,8 @@ function _anBuildListItem(stock, data) {
       </button>
     </div>`;
 
-  // querySelector에서 특수문자(. / 등) 포함된 코드 안전 처리
-  const cbEl = document.getElementById(`an-cb-${stock.code}`);
+  // attribute 선택자 사용 — ID에 점(.)이 포함된 코드(BRK.B 등) querySelector 오작동 방지
+  const cbEl = item.querySelector(`input[type="checkbox"][data-code="${stock.code}"]`);
   if (cbEl) cbEl.addEventListener('change', e => {
     if (e.target.checked) AnState.checkedCodes.add(stock.code);
     else AnState.checkedCodes.delete(stock.code);
