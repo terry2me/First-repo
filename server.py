@@ -866,6 +866,94 @@ async def health():
     return {"ok": True, "time": datetime.now().isoformat()}
 
 
+# ══════════════════════════════════════════════════════════
+#  S&P 500 종목 수집 → bb_tabs "S&P500" 그룹 UPSERT
+# ══════════════════════════════════════════════════════════
+SP500_CSV_URL = (
+    "https://raw.githubusercontent.com/datasets/"
+    "s-and-p-500-companies/main/data/constituents.csv"
+)
+SP500_TAB_NAME = "S&P500"
+
+
+def _fetch_sp500_tickers() -> list[dict]:
+    """GitHub datahub CSV에서 S&P500 구성종목 가져오기"""
+    import requests as _req_lib
+    import csv, io
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; bb-monitor/1.0)"}
+    r = _req_lib.get(SP500_CSV_URL, headers=headers, timeout=15)
+    r.raise_for_status()
+    reader = csv.DictReader(io.StringIO(r.text))
+    return [
+        {
+            "code":   row["Symbol"].strip(),
+            "name":   row["Security"].strip(),
+            "market": "US",
+            "sector": row.get("GICS Sector", "").strip(),
+        }
+        for row in reader
+        if row.get("Symbol", "").strip()
+    ]
+
+
+@app.post("/api/sp500/sync")
+async def sp500_sync():
+    """
+    S&P500 종목 목록을 수집해 bb_tabs 의 'S&P500' 탭에 UPSERT.
+    - 탭이 없으면 생성, 있으면 stocks 갱신.
+    - 기존에 있었다가 S&P500에서 빠진 종목은 삭제.
+    반환: { added, removed, total, tab_id }
+    """
+    # ① S&P500 최신 목록 수집
+    try:
+        sp_stocks = _fetch_sp500_tickers()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"S&P500 데이터 수집 실패: {e}")
+
+    sp_codes = {s["code"] for s in sp_stocks}
+
+    # ② bb_tabs 에서 S&P500 탭 찾기
+    existing_tabs = _kv_get_all("bb_tabs")
+    sp_tab = next((t for t in existing_tabs if t.get("name") == SP500_TAB_NAME), None)
+
+    if sp_tab:
+        # 기존 탭의 stocks 파싱
+        try:
+            old_stocks = json.loads(sp_tab.get("stocks", "[]"))
+        except Exception:
+            old_stocks = []
+        old_codes = {s["code"] for s in old_stocks}
+
+        added   = sp_codes - old_codes          # 새로 편입
+        removed = old_codes - sp_codes          # 제외된 종목
+
+        # 최신 목록으로 교체 (이름/섹터도 갱신)
+        _kv_patch("bb_tabs", sp_tab["id"], {
+            "stocks": json.dumps(sp_stocks, ensure_ascii=False)
+        })
+        tab_id = sp_tab["id"]
+    else:
+        # 탭 신규 생성 — sort_order는 기존 탭 수 뒤에
+        max_order = max((t.get("sort_order", 0) for t in existing_tabs), default=-1)
+        new_tab = _kv_insert("bb_tabs", {
+            "name":       SP500_TAB_NAME,
+            "sort_order": max_order + 1,
+            "stocks":     json.dumps(sp_stocks, ensure_ascii=False),
+        })
+        tab_id  = new_tab["id"]
+        added   = sp_codes
+        removed = set()
+
+    return {
+        "ok":      True,
+        "tab_id":  tab_id,
+        "total":   len(sp_stocks),
+        "added":   len(added),
+        "removed": len(removed),
+        "tickers": [s["code"] for s in sp_stocks],
+    }
+
+
 # ── 정적 파일 서빙 (HTML/CSS/JS) ───────────────────────────
 app.mount("/css", StaticFiles(directory=str(BASE_DIR / "css")), name="css")
 app.mount("/js",  StaticFiles(directory=str(BASE_DIR / "js")),  name="js")

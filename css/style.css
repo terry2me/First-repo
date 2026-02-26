@@ -140,6 +140,16 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 .btn-refresh:hover    { background:var(--accent-hover); box-shadow:0 0 10px var(--accent-glow); }
 .btn-refresh:disabled { opacity:.6; cursor:not-allowed; }
 
+/* S&P500 동기화 버튼 */
+.btn-sp500 {
+  display:flex; align-items:center; gap:5px; padding:5px 11px;
+  background:#16a34a; border:none; border-radius:var(--radius-sm);
+  color:#fff; font-size:12px; font-family:var(--font); font-weight:600;
+  cursor:pointer; transition:all .15s; white-space:nowrap;
+}
+.btn-sp500:hover    { background:#15803d; box-shadow:0 0 10px rgba(22,163,74,.35); }
+.btn-sp500:disabled { opacity:.6; cursor:not-allowed; }
+
 /* ══ MAIN LAYOUT ══ */
 .main-layout {
   display:flex;

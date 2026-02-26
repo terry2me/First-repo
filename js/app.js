@@ -1465,6 +1465,52 @@ function initRefreshBtn() {
 }
 
 /* ══════════════════════════════════════════════
+   S&P500 동기화 버튼
+══════════════════════════════════════════════ */
+function initSP500Btn() {
+  const btn = document.getElementById('btnSP500');
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    btn.disabled  = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 동기화 중...';
+
+    try {
+      // ① 서버 API 호출 → bb_tabs에 S&P500 탭 UPSERT
+      const res = await fetch('/api/sp500/sync', { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      // ② Storage 재초기화 — 서버 데이터 최신화
+      await Storage.init();
+
+      // ③ S&P500 탭으로 전환
+      const tabs = Storage.getTabs();
+      const sp500Tab = tabs.find(t => t.name === 'S&P500');
+      if (sp500Tab) {
+        await Storage.setActiveTabId(sp500Tab.uid);
+      }
+
+      // ④ UI 갱신
+      renderTabs();
+      renderList();
+
+      const msg = `S&P500 동기화 완료 — ${data.total}개 종목`
+        + (data.added   ? ` (+${data.added} 신규)`   : '')
+        + (data.removed ? ` (-${data.removed} 제외)` : '');
+      showToast(msg, 'success');
+
+    } catch (e) {
+      console.error('[SP500] 동기화 실패:', e);
+      showToast('S&P500 동기화 실패: ' + e.message, 'error');
+    } finally {
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="fas fa-chart-line"></i> S&amp;P';
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════
    초기화
 ══════════════════════════════════════════════ */
 /* ══════════════════════════════════════════════
@@ -1501,6 +1547,7 @@ async function init() {
   initDeleteBtn();
   initMoveButtons();
   initRefreshBtn();
+  initSP500Btn();
   initModal();
 
   renderTabs();
