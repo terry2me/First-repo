@@ -270,10 +270,14 @@ async function doSearch(input, dbOnly = false) {
     const analyzed = Indicators.analyzeAll(raw);
     AppState.previewCode = analyzed.code;
     AppState.previewData = analyzed;
-    // 등록된 종목이면 watchData도 최신 데이터로 갱신 → 리스트 BB위치·이름 동기화
+    // 리스트 BB위치는 항상 listInterval(1d) 기준 고정
+    // previewInterval 이 listInterval 과 같을 때만 watchData 갱신
+    // (주봉 데이터로 watchData를 덮어쓰면 BB위치가 주봉 기준으로 오염됨)
     if (Object.prototype.hasOwnProperty.call(AppState.watchData, analyzed.code)) {
-      AppState.watchData[analyzed.code] = analyzed;
-      _refreshListItem(analyzed.code);
+      if (AppState.previewInterval === AppState.listInterval) {
+        AppState.watchData[analyzed.code] = analyzed;
+        _refreshListItem(analyzed.code);
+      }
       _fixStockNameIfNeeded(analyzed.code, analyzed.name);
     }
     renderPreview(analyzed);
