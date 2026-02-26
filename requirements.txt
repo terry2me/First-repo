@@ -1,28 +1,34 @@
 # ================================================================
-# BB Monitor — 의존성 패키지
+# BB Monitor — Python 패키지 의존성
 # 설치: pip install -r requirements.txt
 #
-# 구성:
-#   [웹 서버]    FastAPI + Uvicorn
-#   [데이터]     yfinance (주가 조회) + requests (HTTP)
-#   [스케줄러]   APScheduler (매일 04:00 KST 자동 업데이트)
-#   [타임존]     tzdata (Windows 환경 필수, Linux/Mac 선택)
-#   [유효성]     pydantic (FastAPI 요청 모델)
+# [직접 사용 패키지만 명시 — 나머지는 pip 이 자동 설치]
+#
+#   fastapi        웹 프레임워크 (REST API + 정적 파일 서빙)
+#   uvicorn        ASGI 웹 서버 ([standard] = websockets 등 포함)
+#   pydantic       요청/응답 데이터 유효성 검사 (FastAPI 내장 의존)
+#   yfinance       주가·메타·펀더멘털 데이터 수집
+#   requests       S&P500 CSV 다운로드 (yfinance 의존성 포함)
+#   APScheduler    매일 04:00 KST 자동 업데이트 스케줄러
+#   tzdata         타임존 DB — Windows 필수 / Linux·Mac 선택
+#                  (zoneinfo "Asia/Seoul" 런타임 오류 방지)
+#
+# [표준 라이브러리 — 별도 설치 불필요]
+#   sqlite3, json, threading, asyncio, csv, io,
+#   uuid, time, traceback, datetime, pathlib, zoneinfo, typing
 # ================================================================
 
 # ── 웹 서버 ──────────────────────────────────────────────────────
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
 
-# ── 데이터 수집 ──────────────────────────────────────────────────
+# ── 주가 데이터 수집 ──────────────────────────────────────────────
 yfinance>=0.2.50
 requests>=2.31.0
 
-# ── 스케줄러 ─────────────────────────────────────────────────────
+# ── 자동 스케줄러 ────────────────────────────────────────────────
 APScheduler>=3.10.0
 
-# ── 타임존 (Windows 필수 / Linux·Mac 선택) ───────────────────────
+# ── 타임존 (Windows 필수) ─────────────────────────────────────────
 tzdata>=2024.1
-
-# ── 유효성 검사 (FastAPI 내장 의존) ──────────────────────────────
-pydantic>=2.0.0
