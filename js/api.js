@@ -76,7 +76,7 @@ const API = (() => {
    * 3. /api/stocks 로 결과 일괄 수신
    * 4. onProgress 콜백으로 앱에 진행 상황 전달
    * ─────────────────────────────────────────────────────── */
-  async function fetchMultiple(stocks, candleCount, interval, onProgress) {
+  async function fetchMultiple(stocks, candleCount, interval, onProgress, dbOnly = false) {
     if (!stocks || stocks.length === 0) return [];
 
     /* ① 백그라운드 새로고침 시작 */
@@ -87,6 +87,7 @@ const API = (() => {
         stocks:       stocks.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
         interval,
         candle_count: candleCount,
+        db_only:      dbOnly,
       }),
     });
     if (!refreshRes.ok) {
@@ -117,6 +118,7 @@ const API = (() => {
         stocks:       stocks.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
         interval,
         candle_count: candleCount,
+        db_only:      dbOnly,
       }),
     });
 
@@ -147,7 +149,7 @@ const API = (() => {
    * DB에 오늘 데이터가 있으면 yfinance 호출 없이 즉시 반환.
    * concurrency: 동시 요청 수 (기본 5) — yfinance 블록 방지용.
    * ────────────────────────────────────────────────────────────────── */
-  async function fetchMultipleFast(stocks, candleCount, interval, onProgress, concurrency = 5) {
+  async function fetchMultipleFast(stocks, candleCount, interval, onProgress, concurrency = 5, dbOnly = false) {
     if (!stocks || stocks.length === 0) return [];
 
     const results = new Array(stocks.length).fill(null);
@@ -159,7 +161,7 @@ const API = (() => {
         const i = idx++;
         const s = stocks[i];
         try {
-          const data = await fetchStock(s.code, candleCount, interval, s.market || null);
+          const data = await fetchStock(s.code, candleCount, interval, s.market || null, dbOnly);
           results[i] = data;
           onProgress?.(s.code, data, null);
         } catch (e) {

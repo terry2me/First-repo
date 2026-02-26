@@ -129,8 +129,8 @@ function initHeaderControls() {
       btn.classList.add('active');
       // 미리보기: DB만 읽어서 재표시
       if (AppState.previewCode) doSearch(AppState.previewCode, true);
-      // 리스트: 새 interval 로 전체 재조회
-      doRefreshAll();
+      // 리스트: 새 interval 로 DB만 재조회
+      doRefreshAll(true);
     });
   });
 
@@ -626,7 +626,7 @@ function showSearchLoading(v) { document.getElementById('searchLoading').style.d
 /* ══════════════════════════════════════════════
    우단 전체 새로고침
 ══════════════════════════════════════════════ */
-async function doRefreshAll() {
+async function doRefreshAll(dbOnly = false) {
   const allCodes  = new Set();
   const allStocks = [];
   Storage.getTabs().forEach(tab => {
@@ -663,7 +663,7 @@ async function doRefreshAll() {
       console.warn(`[${code}] 조회 실패:`, err?.message);
     }
     setMsg(`데이터 로드 중... (${done}/${total})`);
-  });
+  }, dbOnly);
 
   loadEl.style.display = 'none';
   setLastUpdated();

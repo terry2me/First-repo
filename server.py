@@ -807,6 +807,7 @@ class RefreshRequest(BaseModel):
     stocks:       list[dict]   # [{ code, market }]
     interval:     str = "1d"
     candle_count: int = 52
+    db_only:      bool = False  # True: DB만 읽음 (인터벌 버튼 전환 시)
 
 
 # ── 단일 종목 조회 ─────────────────────────────────────────
@@ -962,12 +963,22 @@ async def get_stocks(req: RefreshRequest):
     """
     여러 종목을 한 번에 조회해서 반환
     (refresh 완료 후 JS에서 결과 가져올 때 사용)
+    db_only=True: DB에 있는 데이터만 반환 (yfinance 미호출)
     """
     results = []
     for s in req.stocks:
         market = s.get("market") or resolve_market(s["code"])
         ticker = resolve_ticker(s["code"], market)
         try:
+            if req.db_only:
+                prices = db_get_prices(ticker, req.interval, limit=req.candle_count + 60)
+                if not prices:
+                    # DB에 없으면 yfinance 폴백 후 저장
+                    print(f"[DB-only/stocks] {ticker} ({req.interval}) 없음 → yfinance 폴백")
+                    ensure_prices(ticker, market, req.interval)
+                    ensure_meta_and_fundamentals(ticker, market)
+                else:
+                    print(f"[DB-only/stocks] {ticker} ({req.interval}) {len(prices)}건")
             data = build_response(ticker, market, req.interval, req.candle_count)
             results.append({"ok": True, "code": s["code"], "data": data})
         except Exception as e:
