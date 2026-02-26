@@ -79,38 +79,35 @@ const API = (() => {
   async function fetchMultiple(stocks, candleCount, interval, onProgress, dbOnly = false) {
     if (!stocks || stocks.length === 0) return [];
 
-    /* ① 백그라운드 새로고침 시작 */
-    const refreshRes = await fetch(`${BASE}/api/refresh`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        stocks:       stocks.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
-        interval,
-        candle_count: candleCount,
-        db_only:      dbOnly,
-      }),
-    });
-    if (!refreshRes.ok) {
-      console.warn('[API] refresh 요청 실패:', refreshRes.status);
+    // db_only=true: /api/refresh(yfinance 배치) 건너뛰고 /api/stocks 직접 호출
+    // db_only=false: 기존 /api/refresh → 폴링 → /api/stocks 흐름 유지
+    if (!dbOnly) {
+      /* ① 백그라운드 새로고침 시작 */
+      const refreshRes = await fetch(`${BASE}/api/refresh`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stocks:       stocks.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
+          interval,
+          candle_count: candleCount,
+          db_only:      false,
+        }),
+      });
+      if (!refreshRes.ok) {
+        console.warn('[API] refresh 요청 실패:', refreshRes.status);
+      }
+
+      /* ② 완료까지 폴링 */
+      for (let i = 0; i < 300; i++) {          // 최대 300 × 0.8s = 4분
+        await _sleep(800);
+        try {
+          const st = await fetch(`${BASE}/api/refresh/status`).then(r => r.json());
+          if (!st.running) break;
+        } catch (_) { /* 폴링 오류는 무시 */ }
+      }
     }
 
-    /* ② 완료까지 폴링 */
-    let lastDone = 0;
-    for (let i = 0; i < 300; i++) {          // 최대 300 × 0.8s = 4분
-      await _sleep(800);
-      try {
-        const st = await fetch(`${BASE}/api/refresh/status`).then(r => r.json());
-
-        // 진행 중 onProgress 호출 (새로 완료된 종목 수만큼)
-        if (st.done > lastDone) {
-          lastDone = st.done;
-        }
-
-        if (!st.running) break;
-      } catch (_) { /* 폴링 오류는 무시 */ }
-    }
-
-    /* ③ 결과 일괄 수신 */
+    /* ③ 결과 일괄 수신 (/api/stocks) */
     const stocksRes = await fetch(`${BASE}/api/stocks`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
