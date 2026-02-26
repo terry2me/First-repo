@@ -204,8 +204,13 @@ const API = (() => {
         if (data && !data._fetchFailed) {
           result.set(key, {
             trailingPE:   data.trailingPE   ?? null,
+            forwardPE:    data.forwardPE    ?? null,
+            pbr:          data.pbr          ?? null,
+            evToEbitda:   data.evToEbitda   ?? null,
+            dividendYield:data.dividendYield ?? null,
             eps:          data.eps          ?? null,
             beta:         data.beta         ?? null,
+            sector:       data.sector       ?? null,
             _fetchFailed: false,
           });
         } else {

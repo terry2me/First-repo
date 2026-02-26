@@ -39,6 +39,7 @@
   --col-trail-pe:   56px;
   --col-eps:        56px;
   --col-beta:       52px;
+  --col-sector:    110px;
 
   /* 앱 탭바 높이 */
   --app-tab-bar-h: 38px;
@@ -340,6 +341,11 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
   padding:2px 7px; background:rgba(59,130,246,.2); border:1px solid rgba(59,130,246,.4);
   border-radius:10px; font-size:10px; color:#93c5fd; font-weight:600;
 }
+.preview-sector-badge {
+  padding:2px 7px; background:rgba(99,102,241,.18); border:1px solid rgba(99,102,241,.35);
+  border-radius:10px; font-size:10px; color:#a5b4fc; font-weight:500;
+  max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 /* 가격 + 등락 한 줄 */
 .preview-price-line {
   display: flex;
@@ -519,6 +525,35 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
   transition: color .15s;
 }
 .corr-clickable:hover { color: var(--accent); text-decoration: underline; }
+
+/* 상관관계 가로 배치 */
+.corr-section.corr-horizontal {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 8px 10px;
+}
+.corr-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  overflow: hidden;
+}
+.corr-item .corr-name {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.corr-item .corr-code {
+  display: none; /* 가로 배치에서 코드 숨김 (공간 절약) */
+}
 
 .chart-stack {
   display: flex;
@@ -760,6 +795,7 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 .col-header.col-trail-pe  { width:var(--col-trail-pe); }
 .col-header.col-eps       { width:var(--col-eps); }
 .col-header.col-beta      { width:var(--col-beta); }
+.col-header.col-sector    { width:var(--col-sector); }
 .col-header.col-action    { width:var(--col-action); font-size:10px; color:var(--text-muted); }
 
 .sort-col {
@@ -809,6 +845,7 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 .col-trail-pe   { width:var(--col-trail-pe);   flex-shrink:0; }
 .col-eps        { width:var(--col-eps);        flex-shrink:0; }
 .col-beta       { width:var(--col-beta);       flex-shrink:0; }
+.col-sector     { width:var(--col-sector);     flex-shrink:0; font-size:11px; }
 
 .stock-item {
   display:flex; align-items:center; padding:3px 6px;

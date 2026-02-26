@@ -380,7 +380,7 @@ function _calcCorrelations(targetCode) {
   };
 }
 
-/** 상관관계 섹션 렌더링 */
+/** 상관관계 섹션 렌더링 — 가로 배치 */
 function renderCorrSection(targetCode) {
   const sec = document.getElementById('corrSection');
   if (!sec) return;
@@ -395,16 +395,16 @@ function renderCorrSection(targetCode) {
   const barColor = r => r >= 0 ? 'var(--up)' : 'var(--down)';
   const rFmt     = r => (r >= 0 ? '+' : '') + r.toFixed(2);
 
-  const makeRow = (item, badgeClass, badgeText) => {
-    const row = document.createElement('div');
-    row.className = 'corr-row';
+  const makeItem = (item, badgeClass, badgeText) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'corr-item';
 
     const badge = document.createElement('span');
     badge.className   = `corr-badge ${badgeClass}`;
     badge.textContent = badgeText;
 
     const score = document.createElement('span');
-    score.className = 'corr-score';
+    score.className   = 'corr-score';
     score.style.color = barColor(item.r);
     score.textContent = rFmt(item.r);
 
@@ -418,7 +418,6 @@ function renderCorrSection(targetCode) {
     codeEl.textContent = item.code;
     codeEl.title       = `${item.name} 조회`;
 
-    // 클릭 → 해당 종목 검색 (input 창도 업데이트)
     const onClick = () => {
       document.getElementById('stockInput').value = item.code;
       doSearch(item.code);
@@ -426,14 +425,15 @@ function renderCorrSection(targetCode) {
     nameEl.addEventListener('click', onClick);
     codeEl.addEventListener('click', onClick);
 
-    row.append(badge, score, nameEl, codeEl);
-    return row;
+    wrap.append(badge, score, nameEl, codeEl);
+    return wrap;
   };
 
   sec.innerHTML = '';
-  sec.appendChild(makeRow(pos, 'corr-badge-pos', '양'));
-  sec.appendChild(makeRow(neu, 'corr-badge-neu', '중'));
-  sec.appendChild(makeRow(neg, 'corr-badge-neg', '음'));
+  sec.className = 'corr-section corr-horizontal';
+  sec.appendChild(makeItem(pos, 'corr-badge-pos', '양'));
+  sec.appendChild(makeItem(neu, 'corr-badge-neu', '중'));
+  sec.appendChild(makeItem(neg, 'corr-badge-neg', '음'));
   sec.style.display = 'flex';
 }
 
@@ -447,8 +447,24 @@ function renderPreview(data) {
   document.getElementById('previewPrice').textContent = fmtPrice(currentPrice, isUS);
   document.getElementById('previewIntervalBadge').textContent = interval === '1wk' ? '주봉' : '일봉';
 
-  const mktBadge = document.getElementById('previewMarketBadge');
-  if (mktBadge) mktBadge.innerHTML = '';
+  // 섹터 백지
+  const sectorBadge = document.getElementById('previewSectorBadge');
+  if (sectorBadge) {
+    const sector = data.sector || AppState.fundamentals[data.code]?.sector;
+    if (sector) {
+      // /api/stock 응답의 sector를 fundamentals 캐시에도 저장 (리스트 표시용)
+      if (data.sector && !AppState.fundamentals[data.code]) {
+        AppState.fundamentals[data.code] = {};
+      }
+      if (data.sector && AppState.fundamentals[data.code]) {
+        AppState.fundamentals[data.code].sector = data.sector;
+      }
+      sectorBadge.textContent = sector;
+      sectorBadge.style.display = '';
+    } else {
+      sectorBadge.style.display = 'none';
+    }
+  }
 
   // 금일 등락: 전일 종가 → 현재가
   const todayEl = document.getElementById('previewTodayChange');
@@ -716,7 +732,7 @@ async function _fetchAllFundamentals(stocks) {
 }
 
 // _fetchAllFundamentals 내부에서 사용하는 빈 펀더멘털 플레이스홀더
-const _EMPTY_FUND_PLACEHOLDER = Object.freeze({ trailingPE: null, eps: null, beta: null });
+const _EMPTY_FUND_PLACEHOLDER = Object.freeze({ trailingPE: null, eps: null, beta: null, sector: null });
 
 /* ── 이름 교정: API에서 가져온 정제된 이름이 저장된 이름과 다르면 서버 업데이트 ── */
 function _fixStockNameIfNeeded(code, cleanName) {
@@ -810,10 +826,12 @@ function buildListItem(stock, data) {
 
   // 펀더멘털
   const fd = AppState.fundamentals[stock.code] || {};
-  const trailPE  = fmtFundNum(fd.trailingPE);
-  const epsVal   = fmtFundNum(fd.eps);
-  const betaVal  = fmtFundNum(fd.beta);
-  const betaCls  = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
+  const trailPE   = fmtFundNum(fd.trailingPE);
+  const epsVal    = fmtFundNum(fd.eps);
+  const betaVal   = fmtFundNum(fd.beta);
+  const betaCls   = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
+  const sectorVal = fd.sector || '';
+  const sectorShort = sectorVal.length > 14 ? sectorVal.slice(0, 13) + '…' : sectorVal;
 
   item.innerHTML = `
     <div class="col-check">
@@ -859,6 +877,7 @@ function buildListItem(stock, data) {
     <div class="col-trail-pe fund-val">${trailPE}</div>
     <div class="col-eps      fund-val">${epsVal}</div>
     <div class="col-beta     fund-val ${betaCls}">${betaVal}</div>
+    <div class="col-sector   fund-val" title="${sectorVal}">${sectorShort}</div>
     <div class="col-action">
       <button class="btn-detail" data-code="${stock.code}" title="상세 차트">
         <i class="fas fa-chart-bar"></i>
@@ -923,6 +942,8 @@ function _refreshListItem(code) {
   _setFund('.col-eps',      fmtFundNum(fd.eps));
   _setFund('.col-beta',     fmtFundNum(fd.beta),
     fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '');
+  const sv = fd.sector || '';
+  _setFund('.col-sector', sv.length > 14 ? sv.slice(0,13)+'…' : sv);
 
   // 캔들 데이터 없으면 나머지 갱신 건너뜀
   if (!data) return;
@@ -1021,6 +1042,7 @@ function sortList(list, col, dir) {
       case 'trailPE':  va = AppState.fundamentals[a.code]?.trailingPE ?? -Infinity; vb = AppState.fundamentals[b.code]?.trailingPE ?? -Infinity; break;
       case 'eps':      va = AppState.fundamentals[a.code]?.eps        ?? -Infinity; vb = AppState.fundamentals[b.code]?.eps        ?? -Infinity; break;
       case 'beta':     va = AppState.fundamentals[a.code]?.beta       ?? -Infinity; vb = AppState.fundamentals[b.code]?.beta       ?? -Infinity; break;
+      case 'sector':   va = (AppState.fundamentals[a.code]?.sector || '').toLowerCase(); vb = (AppState.fundamentals[b.code]?.sector || '').toLowerCase(); break;
       default: return 0;
     }
     if (va < vb) return dir === 'asc' ? -1 : 1;
@@ -1056,8 +1078,9 @@ function initColResizers() {
     trailPE:  '--col-trail-pe',
     eps:      '--col-eps',
     beta:     '--col-beta',
+    sector:   '--col-sector',
   };
-  const MIN = { alert: 48, name: 70, price: 70, todayChg: 60, change: 60, bbRatio: 120, trailPE: 40, eps: 40, beta: 40 };
+  const MIN = { alert: 48, name: 70, price: 70, todayChg: 60, change: 60, bbRatio: 120, trailPE: 40, eps: 40, beta: 40, sector: 60 };
 
   document.querySelectorAll('.col-resizer').forEach(h => {
     const key = h.dataset.col, v = CSS[key];

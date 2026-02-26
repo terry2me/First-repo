@@ -115,9 +115,21 @@ def init_db():
             dividend_yield REAL,
             eps            REAL,
             beta           REAL,
+            sector         TEXT,
             fetched_at     TEXT
         )
     """)
+    # 기존 DB 마이그레이션 — OHLCV 컬럼
+    for col in ['open', 'high', 'low', 'volume']:
+        try:
+            c.execute(f'ALTER TABLE stock_prices ADD COLUMN {col} REAL')
+        except Exception:
+            pass
+    # 기존 DB 마이그레이션 — sector 컬럼
+    try:
+        c.execute('ALTER TABLE stock_fundamentals ADD COLUMN sector TEXT')
+    except Exception:
+        pass
 
     # ── Genspark Table API 호환: 동적 KV 저장소 ──────────────
     # storage.js 가 tables/{table_name} 으로 호출하는 경로를 처리
@@ -334,6 +346,7 @@ def _yf_fetch_meta(ticker_str: str) -> dict:
         return {
             "name":           info.get("longName") or info.get("shortName") or ticker_str,
             "currency":       info.get("currency", ""),
+            "sector":         info.get("sector"),
             "trailing_pe":    info.get("trailingPE"),
             "forward_pe":     info.get("forwardPE"),
             "pbr":            info.get("priceToBook"),
@@ -453,14 +466,14 @@ def db_get_meta(ticker: str) -> Optional[dict]:
 
 
 def db_upsert_fundamentals(ticker: str, data: dict):
-    """펀더멘털 upsert"""
+    """펀더멘털 upsert (sector 포함)"""
     conn = get_db()
     now  = datetime.now().isoformat()
     conn.execute(
         """
         INSERT INTO stock_fundamentals
-            (ticker, trailing_pe, forward_pe, pbr, ev_to_ebitda, dividend_yield, eps, beta, fetched_at)
-        VALUES (?,?,?,?,?,?,?,?,?)
+            (ticker, trailing_pe, forward_pe, pbr, ev_to_ebitda, dividend_yield, eps, beta, sector, fetched_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(ticker) DO UPDATE SET
             trailing_pe=excluded.trailing_pe,
             forward_pe=excluded.forward_pe,
@@ -469,12 +482,14 @@ def db_upsert_fundamentals(ticker: str, data: dict):
             dividend_yield=excluded.dividend_yield,
             eps=excluded.eps,
             beta=excluded.beta,
+            sector=excluded.sector,
             fetched_at=excluded.fetched_at
         """,
         (ticker,
          data.get("trailing_pe"), data.get("forward_pe"),
          data.get("pbr"), data.get("ev_to_ebitda"),
          data.get("dividend_yield"), data.get("eps"), data.get("beta"),
+         data.get("sector"),
          now)
     )
     conn.commit()
@@ -534,13 +549,17 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
     meta = db_get_meta(ticker)
     fund = db_get_fundamentals(ticker)
 
-    # 펀더멘털 갱신 필요 여부 판단 (하루 1회)
+    # 펀더멘털 갱신 필요 여부 판단 (하루 1회, 단 sector가 없으면 강제 갱신)
     need_fund = force or fund is None
     if fund and fund.get("fetched_at"):
         try:
             fetched = datetime.fromisoformat(fund["fetched_at"])
             if (datetime.now() - fetched).total_seconds() < 86400:
-                need_fund = False
+                # sector가 null이면 강제 갱신 (마이그레이션)
+                if fund.get("sector") is None and market == "US":
+                    need_fund = True
+                else:
+                    need_fund = False
         except Exception:
             need_fund = True
 
@@ -640,6 +659,7 @@ def build_response(ticker: str, market: str, interval: str, candle_count: int) -
         "dividendYield":  (fund or {}).get("dividend_yield"),
         "eps":            (fund or {}).get("eps"),
         "beta":           (fund or {}).get("beta"),
+        "sector":         (fund or {}).get("sector"),
     }
 
 
@@ -784,6 +804,7 @@ async def get_fundamentals_batch(req: FundBatchRequest):
                 "dividendYield":fund.get("dividend_yield"),
                 "eps":          fund.get("eps"),
                 "beta":         fund.get("beta"),
+                "sector":       fund.get("sector"),
                 "_fetchFailed": False,
             }
         else:
