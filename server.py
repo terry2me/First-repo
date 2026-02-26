@@ -425,14 +425,48 @@ def db_get_last_date(ticker: str, interval: str) -> Optional[str]:
     return row["d"] if row and row["d"] else None
 
 
+def _get_cache_cutoff(market: str, interval: str) -> str:
+    """
+    interval별 캐시 유효 기준 날짜 반환.
+
+    - 1d  : 마지막 거래일 날짜와 DB 날짜가 정확히 일치해야 HIT
+    - 1wk : 이번 주(월요일) 이후 데이터가 하나라도 있으면 HIT
+             (주봉 캔들 날짜는 항상 그 주 월요일 또는 금요일 기준이므로
+              당일 날짜와 일치하지 않아 일봉 로직으로는 항상 MISS)
+    """
+    if interval == "1wk":
+        if market == "US":
+            now = datetime.now(TZ_EST)
+        else:
+            now = datetime.now(TZ_KST)
+        # 이번 주 월요일 (weekday 0 = 월)
+        monday = now - timedelta(days=now.weekday())
+        return monday.strftime("%Y-%m-%d")
+    # 일봉(1d) 및 기타: 마지막 거래일 기준
+    return get_last_trading_date(market)
+
+
 def db_has_today(ticker: str, interval: str, market: str) -> bool:
-    """마지막 거래일 데이터가 DB에 있는지 확인 (시장별 기준 적용)"""
-    last_trading = get_last_trading_date(market)
-    conn  = get_db()
-    row   = conn.execute(
-        "SELECT 1 FROM stock_prices WHERE ticker=? AND date=? AND interval=?",
-        (ticker, last_trading, interval)
-    ).fetchone()
+    """캔들 interval별 캐시 유효 여부 확인.
+
+    - 1d  : DB에 마지막 거래일 날짜 행이 있으면 HIT
+    - 1wk : DB에 이번 주 월요일 이후 데이터가 있으면 HIT
+              (주봉은 그 주 시작일 기록이므로 정확한 날짜 매칭 불필요)
+    """
+    cutoff = _get_cache_cutoff(market, interval)
+    conn   = get_db()
+    if interval == "1wk":
+        # 이번 주 월요일 이후 날짜가 존재하면 HIT
+        row = conn.execute(
+            "SELECT 1 FROM stock_prices WHERE ticker=? AND date>=? AND interval=?",
+            (ticker, cutoff, interval)
+        ).fetchone()
+    else:
+        # 일봉: 마지막 거래일과 정확히 일치
+        row = conn.execute(
+            "SELECT 1 FROM stock_prices WHERE ticker=? AND date=? AND interval=?",
+            (ticker, cutoff, interval)
+        ).fetchone()
     conn.close()
     return row is not None
 
