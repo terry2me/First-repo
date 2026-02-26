@@ -3,9 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 
-# DB (런타임 생성 파일 — 저장소에 포함하지 않음)
-stock.db
-
 # 백업 파일
 js/api.js.bak
 

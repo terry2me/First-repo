@@ -716,7 +716,11 @@ async function anDoRefreshAll() {
 /* ══════════════════════════════════════════════
    펀더멘털 배치 조회
 ══════════════════════════════════════════════ */
-const _AN_EMPTY_FUND = Object.freeze({ trailingPE: null, eps: null, beta: null });
+const _AN_EMPTY_FUND = Object.freeze({
+  trailingPE: null, forwardPE: null, pbr: null,
+  evToEbitda: null, dividendYield: null,
+  eps: null, beta: null, sector: null,
+});
 
 async function _anFetchAllFundamentals(stocks) {
   if (!stocks.length) return;
@@ -798,6 +802,9 @@ function anRenderList() {
   });
   if (AnState.previewCode) _anHighlightActiveRow(AnState.previewCode);
   anUpdateDeleteBtn();
+
+  // 렌더링 완료 후 컬럼 너비 자동 조정
+  requestAnimationFrame(() => autoFitColumns('#an-listHeader', '#an-stockList'));
 }
 
 function _anBuildListItem(stock, data) {
@@ -836,11 +843,17 @@ function _anBuildListItem(stock, data) {
     bbLowerPct = l.str; bbLowerCls = l.cls;
   }
 
-  const fd      = AnState.fundamentals[stock.code] || {};
-  const trailPE = fmtFundNum(fd.trailingPE);
-  const epsVal  = fmtFundNum(fd.eps);
-  const betaVal = fmtFundNum(fd.beta);
-  const betaCls = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
+  const fd       = AnState.fundamentals[stock.code] || {};
+  const trailPE   = fmtFundNum(fd.trailingPE);
+  const forwardPE = fmtFundNum(fd.forwardPE);
+  const pbrVal    = fmtFundNum(fd.pbr);
+  const evEbitda  = fmtFundNum(fd.evToEbitda);
+  const divYield  = fd.dividendYield != null ? fmtFundNum(fd.dividendYield) + '%' : '--';
+  const epsVal    = fmtFundNum(fd.eps);
+  const betaVal   = fmtFundNum(fd.beta);
+  const betaCls   = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
+  const anSecVal  = fd.sector || '';
+  const anSecShort = anSecVal.length > 16 ? anSecVal.slice(0,15)+'…' : anSecVal;
 
   item.innerHTML = `
     <div class="col-check">
@@ -883,9 +896,14 @@ function _anBuildListItem(stock, data) {
         </div>
       </div>
     </div>
-    <div class="col-trail-pe fund-val">${trailPE}</div>
-    <div class="col-eps      fund-val">${epsVal}</div>
-    <div class="col-beta     fund-val ${betaCls}">${betaVal}</div>
+    <div class="col-trail-pe  fund-val">${trailPE}</div>
+    <div class="col-forward-pe fund-val">${forwardPE}</div>
+    <div class="col-pbr        fund-val">${pbrVal}</div>
+    <div class="col-ev-ebitda  fund-val">${evEbitda}</div>
+    <div class="col-div-yield  fund-val">${divYield}</div>
+    <div class="col-eps        fund-val">${epsVal}</div>
+    <div class="col-beta       fund-val ${betaCls}">${betaVal}</div>
+    <div class="col-sector     fund-val" title="${anSecVal}">${anSecShort}</div>
     <div class="col-action">
       <button class="btn-detail" data-code="${stock.code}" title="상세 차트">
         <i class="fas fa-chart-bar"></i>
@@ -940,10 +958,16 @@ function _anRefreshListItem(code) {
     e2.textContent = val;
     if (cls !== undefined) e2.className = `fund-val ${cls}`;
   };
-  _set('.col-trail-pe', fmtFundNum(fd.trailingPE));
-  _set('.col-eps',      fmtFundNum(fd.eps));
-  _set('.col-beta',     fmtFundNum(fd.beta),
+  _set('.col-trail-pe',  fmtFundNum(fd.trailingPE));
+  _set('.col-forward-pe', fmtFundNum(fd.forwardPE));
+  _set('.col-pbr',       fmtFundNum(fd.pbr));
+  _set('.col-ev-ebitda', fmtFundNum(fd.evToEbitda));
+  _set('.col-div-yield', fd.dividendYield != null ? fmtFundNum(fd.dividendYield)+'%' : '--');
+  _set('.col-eps',       fmtFundNum(fd.eps));
+  _set('.col-beta',      fmtFundNum(fd.beta),
     fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '');
+  const anSv = fd.sector || '';
+  _set('.col-sector', anSv.length > 16 ? anSv.slice(0,15)+'…' : anSv);
 
   if (!data) return;
 
@@ -1022,7 +1046,12 @@ function _anSortList(list, col, dir) {
       case 'todayChg': va = da?.todayChangePct  ?? -Infinity; vb = db?.todayChangePct  ?? -Infinity; break;
       case 'change':   va = da?.changePct       ?? -Infinity; vb = db?.changePct       ?? -Infinity; break;
       case 'bbRatio':  va = da?.bbRatio         ?? -1;       vb = db?.bbRatio         ?? -1;       break;
-      case 'trailPE':  va = AnState.fundamentals[a.code]?.trailingPE ?? -Infinity; vb = AnState.fundamentals[b.code]?.trailingPE ?? -Infinity; break;
+      case 'trailPE':   va = AnState.fundamentals[a.code]?.trailingPE   ?? -Infinity; vb = AnState.fundamentals[b.code]?.trailingPE   ?? -Infinity; break;
+      case 'forwardPE': va = AnState.fundamentals[a.code]?.forwardPE    ?? -Infinity; vb = AnState.fundamentals[b.code]?.forwardPE    ?? -Infinity; break;
+      case 'pbr':       va = AnState.fundamentals[a.code]?.pbr          ?? -Infinity; vb = AnState.fundamentals[b.code]?.pbr          ?? -Infinity; break;
+      case 'evEbitda':  va = AnState.fundamentals[a.code]?.evToEbitda   ?? -Infinity; vb = AnState.fundamentals[b.code]?.evToEbitda   ?? -Infinity; break;
+      case 'divYield':  va = AnState.fundamentals[a.code]?.dividendYield ?? -Infinity; vb = AnState.fundamentals[b.code]?.dividendYield ?? -Infinity; break;
+      case 'sector':    va = (AnState.fundamentals[a.code]?.sector||'').toLowerCase(); vb = (AnState.fundamentals[b.code]?.sector||'').toLowerCase(); break;
       case 'eps':      va = AnState.fundamentals[a.code]?.eps        ?? -Infinity; vb = AnState.fundamentals[b.code]?.eps        ?? -Infinity; break;
       case 'beta':     va = AnState.fundamentals[a.code]?.beta       ?? -Infinity; vb = AnState.fundamentals[b.code]?.beta       ?? -Infinity; break;
       default: return 0;
@@ -1055,10 +1084,13 @@ function anInitColResizers() {
   const CSS = {
     'an-alert':'--col-alert','an-name':'--col-name','an-price':'--col-price',
     'an-todayChg':'--col-today-chg','an-change':'--col-change','an-bbRatio':'--col-bb',
-    'an-trailPE':'--col-trail-pe','an-eps':'--col-eps','an-beta':'--col-beta',
+    'an-trailPE':'--col-trail-pe','an-forwardPE':'--col-forward-pe','an-pbr':'--col-pbr',
+    'an-evEbitda':'--col-ev-ebitda','an-divYield':'--col-div-yield',
+    'an-eps':'--col-eps','an-beta':'--col-beta','an-sector':'--col-sector',
   };
   const MIN = { 'an-alert':48,'an-name':70,'an-price':70,'an-todayChg':60,'an-change':60,
-                'an-bbRatio':120,'an-trailPE':40,'an-eps':40,'an-beta':40 };
+                'an-bbRatio':120,'an-trailPE':40,'an-forwardPE':40,'an-pbr':40,
+                'an-evEbitda':40,'an-divYield':40,'an-eps':40,'an-beta':40,'an-sector':60 };
   const container = document.getElementById('tab-analysis');
   if (!container) return;
 

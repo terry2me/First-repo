@@ -205,6 +205,7 @@ const API = (() => {
       dividendYield:  d.dividendYield  ?? null,
       eps:            d.eps            ?? null,
       beta:           d.beta           ?? null,
+      sector:         d.sector         ?? null,
     };
   }
 

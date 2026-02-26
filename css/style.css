@@ -36,7 +36,11 @@
   --col-bb:        200px;
   --col-action:     32px;
   /* 펀더멘털 컬럼 */
-  --col-trail-pe:   56px;
+  --col-trail-pe:   58px;
+  --col-forward-pe: 72px;
+  --col-pbr:        52px;
+  --col-ev-ebitda:  76px;
+  --col-div-yield:  48px;
   --col-eps:        56px;
   --col-beta:       52px;
   --col-sector:    110px;
@@ -773,26 +777,29 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
   border-bottom:2px solid var(--border);
   font-size:11px; color:var(--text-muted); font-weight:600;
   gap:4px; flex-shrink:0; user-select:none;
-  /* 가로 스크롤은 부모 list-scroll-wrap 이 담당 */
-  min-width: max-content;   /* 내용 너비 이하로 줄어들지 않음 */
-  /* 수직 sticky: list-scroll-wrap 기준 상단 고정 */
+  min-width: max-content;
   position: sticky;
   top: 0;
   z-index: 5;
 }
 
-.col-check   { width:22px; flex-shrink:0; display:flex; align-items:center; }
-
+/* 헤더 셀 — 가운데 정렬 */
 .col-header {
-  position:relative; display:flex; align-items:center; padding:5px 4px; flex-shrink:0;
+  position:relative; display:flex; align-items:center;
+  justify-content:center; padding:5px 4px; flex-shrink:0;
 }
+.col-check   { width:22px; flex-shrink:0; display:flex; align-items:center; }
 .col-header.col-alert     { width:var(--col-alert); }
 .col-header.col-name      { width:var(--col-name); }
 .col-header.col-price     { width:var(--col-price); }
 .col-header.col-today-chg { width:var(--col-today-chg); }
 .col-header.col-change    { width:var(--col-change); }
-.col-header.col-bb        { width:var(--col-bb); min-width:120px; }
+.col-header.col-bb        { width:var(--col-bb); min-width:160px; }
 .col-header.col-trail-pe  { width:var(--col-trail-pe); }
+.col-header.col-forward-pe{ width:var(--col-forward-pe); }
+.col-header.col-pbr       { width:var(--col-pbr); }
+.col-header.col-ev-ebitda { width:var(--col-ev-ebitda); }
+.col-header.col-div-yield { width:var(--col-div-yield); }
 .col-header.col-eps       { width:var(--col-eps); }
 .col-header.col-beta      { width:var(--col-beta); }
 .col-header.col-sector    { width:var(--col-sector); }
@@ -820,29 +827,36 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 }
 
 /* ── 컬럼 너비 (아이템) ── */
-.col-alert     { width:var(--col-alert);      flex-shrink:0; text-align:center; }
+.col-alert     { width:var(--col-alert);      flex-shrink:0; text-align:center; display:flex; align-items:center; justify-content:center; }
 .col-name      { width:var(--col-name);       flex-shrink:0; display:flex; align-items:baseline; gap:0; overflow:hidden; white-space:nowrap; }
-.col-price     { width:var(--col-price);      flex-shrink:0; text-align:right; }
-.col-today-chg { width:var(--col-today-chg);  flex-shrink:0; text-align:right; font-size:12px; }
-.col-change    { width:var(--col-change);     flex-shrink:0; text-align:right; }
+.col-price     { width:var(--col-price);      flex-shrink:0; text-align:center; }
+.col-today-chg { width:var(--col-today-chg);  flex-shrink:0; text-align:center; font-size:12px; }
+.col-change    { width:var(--col-change);     flex-shrink:0; text-align:center; }
 .col-bb        { width:var(--col-bb);         flex-shrink:0; min-width:160px; }
 .col-action    { width:var(--col-action);     flex-shrink:0; text-align:center; }
 
 /* ── 펀더멘털 컬럼 (리스트 행) ── */
 .fund-val {
   flex-shrink: 0;
-  text-align: right;
+  text-align: center;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-right: 4px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .fund-val.fund-up   { color: var(--up); }
 .fund-val.fund-down { color: var(--down); }
 .col-trail-pe   { width:var(--col-trail-pe);   flex-shrink:0; }
+.col-forward-pe { width:var(--col-forward-pe); flex-shrink:0; }
+.col-pbr        { width:var(--col-pbr);        flex-shrink:0; }
+.col-ev-ebitda  { width:var(--col-ev-ebitda);  flex-shrink:0; }
+.col-div-yield  { width:var(--col-div-yield);  flex-shrink:0; }
 .col-eps        { width:var(--col-eps);        flex-shrink:0; }
 .col-beta       { width:var(--col-beta);       flex-shrink:0; }
 .col-sector     { width:var(--col-sector);     flex-shrink:0; font-size:11px; }

@@ -732,7 +732,11 @@ async function _fetchAllFundamentals(stocks) {
 }
 
 // _fetchAllFundamentals 내부에서 사용하는 빈 펀더멘털 플레이스홀더
-const _EMPTY_FUND_PLACEHOLDER = Object.freeze({ trailingPE: null, eps: null, beta: null, sector: null });
+const _EMPTY_FUND_PLACEHOLDER = Object.freeze({
+  trailingPE: null, forwardPE: null, pbr: null,
+  evToEbitda: null, dividendYield: null,
+  eps: null, beta: null, sector: null,
+});
 
 /* ── 이름 교정: API에서 가져온 정제된 이름이 저장된 이름과 다르면 서버 업데이트 ── */
 function _fixStockNameIfNeeded(code, cleanName) {
@@ -742,6 +746,62 @@ function _fixStockNameIfNeeded(code, cleanName) {
   Storage.updateStockName(code, cleanName).catch(e =>
     console.warn('[이름교정]', code, e?.message)
   );
+}
+
+/* ══════════════════════════════════════════════
+   컬럼 너비 자동 조정 (헤더 + 값 중 최대폭)
+   BB위치 컬럼(col-bb)은 제외 — 최소 너비 고정
+══════════════════════════════════════════════ */
+function autoFitColumns(headerSel, listSel) {
+  const header = document.querySelector(headerSel);
+  const list   = document.querySelector(listSel);
+  if (!header || !list) return;
+
+  // BB 컬럼은 자동 조정 제외할 클래스
+  const SKIP_CLASSES = new Set(['col-bb', 'col-check', 'col-action', 'col-name']);
+
+  // 헤더의 각 col-header 순회
+  header.querySelectorAll('.col-header').forEach(hCell => {
+    // skip 대상이면 패스
+    const skip = [...hCell.classList].some(c => SKIP_CLASSES.has(c));
+    if (skip) return;
+
+    // CSS 변수명 특정: 헤더 셀의 클래스에서 col-XXX 추출
+    const colClass = [...hCell.classList].find(c => c.startsWith('col-') && c !== 'col-header');
+    if (!colClass) return;
+
+    // 헤더 텍스트 너비 측정
+    const sortSpan = hCell.querySelector('.sort-col');
+    const hWidth = sortSpan ? sortSpan.scrollWidth + 12 : hCell.scrollWidth;
+
+    // 동일 클래스 가진 행 셀들 너비 측정
+    let maxCellW = hWidth;
+    list.querySelectorAll(`.${colClass}`).forEach(cell => {
+      const w = cell.scrollWidth + 10; // 패딩 여유
+      if (w > maxCellW) maxCellW = w;
+    });
+
+    // CSS 변수 → var 이름 매핑
+    const cssVarMap = {
+      'col-trail-pe':   '--col-trail-pe',
+      'col-forward-pe': '--col-forward-pe',
+      'col-pbr':        '--col-pbr',
+      'col-ev-ebitda':  '--col-ev-ebitda',
+      'col-div-yield':  '--col-div-yield',
+      'col-eps':        '--col-eps',
+      'col-beta':       '--col-beta',
+      'col-sector':     '--col-sector',
+      'col-price':      '--col-price',
+      'col-today-chg':  '--col-today-chg',
+      'col-change':     '--col-change',
+      'col-alert':      '--col-alert',
+    };
+
+    const varName = cssVarMap[colClass];
+    if (varName) {
+      document.documentElement.style.setProperty(varName, maxCellW + 'px');
+    }
+  });
 }
 
 /* ══════════════════════════════════════════════
@@ -779,6 +839,9 @@ function renderList() {
   });
   if (AppState.previewCode) highlightActiveRow(AppState.previewCode);
   updateDeleteBtn();
+
+  // 렌더링 완료 후 컬럼 너비 자동 조정 (BB위치 제외)
+  requestAnimationFrame(() => autoFitColumns('#listHeader', '#stockList'));
 }
 
 /* ── 리스트 행 생성 ── */
@@ -826,12 +889,16 @@ function buildListItem(stock, data) {
 
   // 펀더멘털
   const fd = AppState.fundamentals[stock.code] || {};
-  const trailPE   = fmtFundNum(fd.trailingPE);
-  const epsVal    = fmtFundNum(fd.eps);
-  const betaVal   = fmtFundNum(fd.beta);
-  const betaCls   = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
-  const sectorVal = fd.sector || '';
-  const sectorShort = sectorVal.length > 14 ? sectorVal.slice(0, 13) + '…' : sectorVal;
+  const trailPE    = fmtFundNum(fd.trailingPE);
+  const forwardPE  = fmtFundNum(fd.forwardPE);
+  const pbrVal     = fmtFundNum(fd.pbr);
+  const evEbitda   = fmtFundNum(fd.evToEbitda);
+  const divYield   = fd.dividendYield != null ? fmtFundNum(fd.dividendYield) + '%' : '--';
+  const epsVal     = fmtFundNum(fd.eps);
+  const betaVal    = fmtFundNum(fd.beta);
+  const betaCls    = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
+  const sectorVal  = fd.sector || '';
+  const sectorShort = sectorVal.length > 16 ? sectorVal.slice(0, 15) + '…' : sectorVal;
 
   item.innerHTML = `
     <div class="col-check">
@@ -874,10 +941,14 @@ function buildListItem(stock, data) {
         </div>
       </div>
     </div>
-    <div class="col-trail-pe fund-val">${trailPE}</div>
-    <div class="col-eps      fund-val">${epsVal}</div>
-    <div class="col-beta     fund-val ${betaCls}">${betaVal}</div>
-    <div class="col-sector   fund-val" title="${sectorVal}">${sectorShort}</div>
+    <div class="col-trail-pe  fund-val">${trailPE}</div>
+    <div class="col-forward-pe fund-val">${forwardPE}</div>
+    <div class="col-pbr        fund-val">${pbrVal}</div>
+    <div class="col-ev-ebitda  fund-val">${evEbitda}</div>
+    <div class="col-div-yield  fund-val">${divYield}</div>
+    <div class="col-eps        fund-val">${epsVal}</div>
+    <div class="col-beta       fund-val ${betaCls}">${betaVal}</div>
+    <div class="col-sector     fund-val" title="${sectorVal}">${sectorShort}</div>
     <div class="col-action">
       <button class="btn-detail" data-code="${stock.code}" title="상세 차트">
         <i class="fas fa-chart-bar"></i>
@@ -938,12 +1009,16 @@ function _refreshListItem(code) {
     el2.textContent = val;
     if (cls !== undefined) el2.className = `fund-val ${cls}`;
   };
-  _setFund('.col-trail-pe', fmtFundNum(fd.trailingPE));
-  _setFund('.col-eps',      fmtFundNum(fd.eps));
-  _setFund('.col-beta',     fmtFundNum(fd.beta),
+  _setFund('.col-trail-pe',  fmtFundNum(fd.trailingPE));
+  _setFund('.col-forward-pe', fmtFundNum(fd.forwardPE));
+  _setFund('.col-pbr',       fmtFundNum(fd.pbr));
+  _setFund('.col-ev-ebitda', fmtFundNum(fd.evToEbitda));
+  _setFund('.col-div-yield', fd.dividendYield != null ? fmtFundNum(fd.dividendYield) + '%' : '--');
+  _setFund('.col-eps',       fmtFundNum(fd.eps));
+  _setFund('.col-beta',      fmtFundNum(fd.beta),
     fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '');
   const sv = fd.sector || '';
-  _setFund('.col-sector', sv.length > 14 ? sv.slice(0,13)+'…' : sv);
+  _setFund('.col-sector', sv.length > 16 ? sv.slice(0,15)+'…' : sv);
 
   // 캔들 데이터 없으면 나머지 갱신 건너뜀
   if (!data) return;
@@ -1039,10 +1114,14 @@ function sortList(list, col, dir) {
       case 'todayChg': va = da?.todayChangePct  ?? -Infinity; vb = db?.todayChangePct  ?? -Infinity; break;
       case 'change':   va = da?.changePct        ?? -Infinity; vb = db?.changePct        ?? -Infinity; break;
       case 'bbRatio':  va = da?.bbRatio          ?? -1;       vb = db?.bbRatio          ?? -1;       break;
-      case 'trailPE':  va = AppState.fundamentals[a.code]?.trailingPE ?? -Infinity; vb = AppState.fundamentals[b.code]?.trailingPE ?? -Infinity; break;
-      case 'eps':      va = AppState.fundamentals[a.code]?.eps        ?? -Infinity; vb = AppState.fundamentals[b.code]?.eps        ?? -Infinity; break;
-      case 'beta':     va = AppState.fundamentals[a.code]?.beta       ?? -Infinity; vb = AppState.fundamentals[b.code]?.beta       ?? -Infinity; break;
-      case 'sector':   va = (AppState.fundamentals[a.code]?.sector || '').toLowerCase(); vb = (AppState.fundamentals[b.code]?.sector || '').toLowerCase(); break;
+      case 'trailPE':   va = AppState.fundamentals[a.code]?.trailingPE  ?? -Infinity; vb = AppState.fundamentals[b.code]?.trailingPE  ?? -Infinity; break;
+      case 'forwardPE': va = AppState.fundamentals[a.code]?.forwardPE   ?? -Infinity; vb = AppState.fundamentals[b.code]?.forwardPE   ?? -Infinity; break;
+      case 'pbr':       va = AppState.fundamentals[a.code]?.pbr         ?? -Infinity; vb = AppState.fundamentals[b.code]?.pbr         ?? -Infinity; break;
+      case 'evEbitda':  va = AppState.fundamentals[a.code]?.evToEbitda  ?? -Infinity; vb = AppState.fundamentals[b.code]?.evToEbitda  ?? -Infinity; break;
+      case 'divYield':  va = AppState.fundamentals[a.code]?.dividendYield ?? -Infinity; vb = AppState.fundamentals[b.code]?.dividendYield ?? -Infinity; break;
+      case 'eps':       va = AppState.fundamentals[a.code]?.eps         ?? -Infinity; vb = AppState.fundamentals[b.code]?.eps         ?? -Infinity; break;
+      case 'beta':      va = AppState.fundamentals[a.code]?.beta        ?? -Infinity; vb = AppState.fundamentals[b.code]?.beta        ?? -Infinity; break;
+      case 'sector':    va = (AppState.fundamentals[a.code]?.sector || '').toLowerCase(); vb = (AppState.fundamentals[b.code]?.sector || '').toLowerCase(); break;
       default: return 0;
     }
     if (va < vb) return dir === 'asc' ? -1 : 1;
@@ -1076,11 +1155,16 @@ function initColResizers() {
     change:   '--col-change',
     bbRatio:  '--col-bb',
     trailPE:  '--col-trail-pe',
+    forwardPE:'--col-forward-pe',
+    pbr:      '--col-pbr',
+    evEbitda: '--col-ev-ebitda',
+    divYield: '--col-div-yield',
     eps:      '--col-eps',
     beta:     '--col-beta',
     sector:   '--col-sector',
   };
-  const MIN = { alert: 48, name: 70, price: 70, todayChg: 60, change: 60, bbRatio: 120, trailPE: 40, eps: 40, beta: 40, sector: 60 };
+  const MIN = { alert: 48, name: 70, price: 70, todayChg: 60, change: 60, bbRatio: 120,
+    trailPE: 40, forwardPE: 40, pbr: 40, evEbitda: 40, divYield: 40, eps: 40, beta: 40, sector: 60 };
 
   document.querySelectorAll('.col-resizer').forEach(h => {
     const key = h.dataset.col, v = CSS[key];
