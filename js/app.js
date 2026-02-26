@@ -261,7 +261,9 @@ function initSearch() {
 }
 
 async function doSearch(input, dbOnly = false) {
-  hidePreview(); hideSearchError(); showSearchLoading(true);
+  // dbOnly=true (일봉/주봉 전환): 로딩 표시·화면 지우기 없이 즉시 DB 데이터로 교체
+  // dbOnly=false (검색 버튼):     기존대로 화면 초기화 후 로딩 표시
+  if (!dbOnly) { hidePreview(); hideSearchError(); showSearchLoading(true); }
   AppState.previewCode = input.toUpperCase();
   try {
     const raw      = await API.fetchStock(input, AppState.candleCount, AppState.previewInterval, null, dbOnly);
@@ -277,9 +279,9 @@ async function doSearch(input, dbOnly = false) {
     renderPreview(analyzed);
   } catch (err) {
     AppState.previewCode = null;
-    showSearchError(err.message || '데이터를 가져오는 데 실패했습니다.');
+    if (!dbOnly) showSearchError(err.message || '데이터를 가져오는 데 실패했습니다.');
   } finally {
-    showSearchLoading(false);
+    if (!dbOnly) showSearchLoading(false);
   }
 }
 

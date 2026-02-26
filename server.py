@@ -822,7 +822,7 @@ async def get_stock(req: StockRequest):
     ticker = resolve_ticker(req.code, market)
 
     if req.db_only:
-        # ── DB-only 모드: yfinance 미호출 ──────────────────
+        # ── DB-only 모드: yfinance 미호출, meta 조회도 생략 ──
         prices = db_get_prices(ticker, req.interval, limit=req.candle_count + 60)
         if not prices:
             raise HTTPException(
@@ -830,7 +830,6 @@ async def get_stock(req: StockRequest):
                 detail=f"{ticker} DB에 {req.interval} 데이터가 없습니다."
             )
         print(f"[DB-only] {ticker} ({req.interval}) {len(prices)}건")
-        ensure_meta_and_fundamentals(ticker, market)
         return build_response(ticker, market, req.interval, req.candle_count)
     else:
         # ── 기본 모드: DB 우선, 없으면 yfinance ───────────
