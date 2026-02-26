@@ -7,6 +7,7 @@ server.py — FastAPI 백엔드 (yfinance + SQLite)
       DB에 오늘 날짜 있음 → DB만 읽어서 반환
       DB에 오늘 날짜 없음 → yfinance로 마지막날짜 포함~오늘 조회 → DB 저장 → DB 읽어서 반환
   - 새로고침: 등록 종목 전체 순차 배치 (0.5초 딜레이)
+  - 스케줄러: 매일 04:00 KST 전체 종목 자동 업데이트 (1d + 1wk)
   - 정적 파일: index.html / css / js 서빙 (포트 8000)
 """
 
@@ -16,12 +17,15 @@ import threading
 import traceback
 import uuid
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, Any
 from zoneinfo import ZoneInfo
 
 import yfinance as yf
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +37,25 @@ BASE_DIR = Path(__file__).parent
 DB_PATH  = BASE_DIR / "stock.db"
 
 # ── FastAPI 앱 ─────────────────────────────────────────────
-app = FastAPI(title="BB Monitor API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """앱 시작 시 스케줄러 등록, 종료 시 정리"""
+    scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
+    scheduler.add_job(
+        _scheduled_daily_refresh,
+        CronTrigger(hour=4, minute=0, timezone="Asia/Seoul"),
+        id="daily_refresh",
+        replace_existing=True,
+    )
+    scheduler.start()
+    next_run = scheduler.get_job("daily_refresh").next_run_time
+    print(f"[scheduler] 시작 완료 — 다음 실행: {next_run.strftime('%Y-%m-%d %H:%M %Z')}")
+    yield
+    scheduler.shutdown(wait=False)
+    print("[scheduler] 종료")
+
+
+app = FastAPI(title="BB Monitor API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -856,6 +878,58 @@ def _do_refresh(stocks: list[dict], interval: str, candle_count: int):
         refresh_status["last_finished"] = datetime.now().isoformat()
 
     print(f"[refresh] 완료: {len(stocks)}종목")
+
+
+# ══════════════════════════════════════════════════════════
+#  스케줄러 — 매일 04:00 KST 자동 전체 업데이트
+# ══════════════════════════════════════════════════════════
+
+def _collect_all_stocks() -> list[dict]:
+    """bb_tabs 에 등록된 모든 탭의 고유 종목 합집합 반환"""
+    tabs = _kv_get_all("bb_tabs")
+    seen: set[str] = set()
+    result: list[dict] = []
+    for tab in tabs:
+        try:
+            stocks = json.loads(tab.get("stocks", "[]"))
+        except Exception:
+            continue
+        for s in stocks:
+            code = s.get("code", "").strip()
+            if code and code not in seen:
+                seen.add(code)
+                result.append({
+                    "code":   code,
+                    "market": s.get("market", "US"),
+                })
+    return result
+
+
+async def _scheduled_daily_refresh():
+    """APScheduler 가 매일 04:00 KST 에 호출하는 자동 업데이트 함수"""
+    now_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M KST")
+    print(f"[scheduler] 자동 업데이트 시작 — {now_kst}")
+
+    # 이미 수동 새로고침이 실행 중이면 스킵
+    if refresh_status["running"]:
+        print("[scheduler] refresh 진행 중 → 스킵")
+        return
+
+    stocks = _collect_all_stocks()
+    if not stocks:
+        print("[scheduler] 등록된 종목 없음 → 스킵")
+        return
+
+    print(f"[scheduler] 대상 종목: {len(stocks)}개 / 1d + 1wk")
+
+    # 1d, 1wk 순차 실행 (각각 스레드 블로킹 허용 — 백그라운드 태스크 안에서 실행됨)
+    import asyncio
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _do_refresh, stocks, "1d",  200)
+    await loop.run_in_executor(None, _do_refresh, stocks, "1wk", 100)
+
+    fin_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M KST")
+    print(f"[scheduler] 자동 업데이트 완료 — {fin_kst} / {len(stocks)}종목")
 
 
 @app.post("/api/refresh")
