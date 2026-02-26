@@ -953,23 +953,30 @@ SP500_TAB_NAME = "S&P500"
 
 
 def _fetch_sp500_tickers() -> list[dict]:
-    """GitHub datahub CSV에서 S&P500 구성종목 가져오기"""
+    """GitHub datahub CSV에서 S&P500 구성종목 가져오기.
+    S&P500 CSV는 BRK.B / BF.B 처럼 점(.)을 사용하지만,
+    yfinance 및 내부 DB는 하이픈(-)을 사용하므로 변환한다.
+    """
     import requests as _req_lib
     import csv, io
     headers = {"User-Agent": "Mozilla/5.0 (compatible; bb-monitor/1.0)"}
     r = _req_lib.get(SP500_CSV_URL, headers=headers, timeout=15)
     r.raise_for_status()
     reader = csv.DictReader(io.StringIO(r.text))
-    return [
-        {
-            "code":   row["Symbol"].strip(),
+    result = []
+    for row in reader:
+        raw_code = row.get("Symbol", "").strip()
+        if not raw_code:
+            continue
+        # 점(.) → 하이픈(-) 변환 (BRK.B → BRK-B, BF.B → BF-B 등)
+        code = raw_code.replace(".", "-")
+        result.append({
+            "code":   code,
             "name":   row["Security"].strip(),
             "market": "US",
             "sector": row.get("GICS Sector", "").strip(),
-        }
-        for row in reader
-        if row.get("Symbol", "").strip()
-    ]
+        })
+    return result
 
 
 @app.post("/api/sp500/sync")
