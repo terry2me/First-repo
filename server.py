@@ -628,8 +628,12 @@ def ensure_prices(ticker: str, market: str, interval: str) -> bool:
 
 def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
     """
-    메타/펀더멘털이 없거나 force=True이면 yfinance에서 조회해서 저장
-    펀더멘털은 하루 1회만 갱신
+    메타/펀더멘털이 없거나 force=True이면 yfinance에서 조회해서 저장.
+    펀더멘털은 마지막 거래일 기준 1회만 갱신.
+
+    yfinance 조회 실패(rate-limit 등) 시에도 빈 sentinel 레코드를 저장해
+    다음 요청에서 반복 호출되지 않도록 방지.
+    sentinel: fetched_at = None → 다음 거래일이 오면 재시도.
     """
     meta = db_get_meta(ticker)
     fund = db_get_fundamentals(ticker)
@@ -651,14 +655,27 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
                 need_fund = True
         except Exception:
             need_fund = True
+    elif fund and fund.get("fetched_at") is None:
+        # fetched_at이 None인 레거시 레코드 → 재시도
+        need_fund = True
 
     if meta is None or need_fund:
+        print(f"[yfinance] {ticker} meta 조회")
         yf_data = _yf_fetch_meta(ticker)
         if yf_data:
             name     = yf_data.get("name", ticker)
             currency = yf_data.get("currency", "")
             db_upsert_meta(ticker, name, currency, market)
             db_upsert_fundamentals(ticker, yf_data)
+            print(f"[DB] {ticker} meta/fund 저장 완료")
+        else:
+            # yfinance 실패 시 sentinel 저장 → 이 요청 안에서 반복 호출 차단
+            # fetched_at=현재시각으로 저장 → 다음 거래일 전까지 재시도 안 함
+            print(f"[yfinance] {ticker} meta 조회 실패 → sentinel 저장 (재시도 억제)")
+            if meta is None:
+                db_upsert_meta(ticker, ticker, "USD" if market == "US" else "KRW", market)
+            if fund is None:
+                db_upsert_fundamentals(ticker, {})  # 빈 값, fetched_at=now → 오늘은 재시도 안 함
 
 
 def build_response(ticker: str, market: str, interval: str, candle_count: int) -> dict:
