@@ -46,7 +46,6 @@
   --col-sector:     80px;
 
   /* 앱 탭바 높이 */
-  --app-tab-bar-h: 38px;
 }
 
 html { height:100%; }
@@ -54,66 +53,6 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
        color:var(--text-primary); font-size:13px; line-height:1.5; overflow-x:hidden;
        overflow-y:auto; }
 
-/* ══ APP 최상단 탭바 ══ */
-.app-tab-bar {
-  display: flex;
-  align-items: stretch;
-  height: var(--app-tab-bar-h);
-  background: #0a1628;
-  border-bottom: 2px solid var(--accent);
-  padding: 0 16px;
-  gap: 0;
-  flex-shrink: 0;
-  z-index: 200;
-  position: sticky;
-  top: 0;
-}
-.app-tab-list {
-  display: flex;
-  align-items: stretch;
-  gap: 2px;
-}
-.app-tab {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 20px;
-  background: transparent;
-  border: none;
-  border-bottom: 3px solid transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-family: var(--font);
-  font-weight: 600;
-  cursor: pointer;
-  transition: all .15s;
-  white-space: nowrap;
-  position: relative;
-  top: 2px;  /* border-bottom 보정 */
-}
-.app-tab:hover { color: var(--text-primary); background: rgba(59,130,246,.08); }
-.app-tab.active {
-  color: #60a5fa;
-  border-bottom-color: var(--accent);
-  background: rgba(59,130,246,.1);
-}
-.app-tab i { font-size: 12px; }
-
-/* 탭 콘텐츠 영역 — 스크롤 가능한 전체 높이 */
-.app-tab-content {
-  display: block;
-  min-height: calc(100vh - var(--app-tab-bar-h));
-}
-.app-tab-content.hidden { display: none; }
-
-::-webkit-scrollbar { width:6px; height:6px; }
-::-webkit-scrollbar-track { background:var(--bg-base); }
-::-webkit-scrollbar-thumb { background:#2a3f5f; border-radius:4px; }
-::-webkit-scrollbar-thumb:hover { background:var(--accent); }
-
-/* ══ 앱 타이틀 (탭바 우측) ══ */
-.app-tab-bar-right { margin-left:auto; display:flex; align-items:center; }
-.app-title { font-size:13px; font-weight:700; color:var(--text-secondary); white-space:nowrap; }
 
 /* ── 일봉/주봉 토글 ── */
 .interval-toggle {
@@ -156,7 +95,7 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
   gap:14px;
   padding:14px;
   /* header 없으므로 탭바 높이만 제외, 내용 길이에 따라 자유 성장 */
-  min-height: calc(100vh - var(--app-tab-bar-h));
+  min-height: 100vh;
   align-items: stretch;
 }
 .panel {
@@ -167,13 +106,13 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 /* 좌패널: 내용 길면 자체 스크롤 */
 .panel-left  {
   width:680px; flex-shrink:0;
-  min-height: calc(100vh - var(--app-tab-bar-h) - 28px);
+  min-height: calc(100vh - 28px);
   overflow-y: auto;
 }
 /* 우패널: list-scroll-wrap이 내부 스크롤 담당 */
 .panel-right {
   flex:1; min-width:0; position:relative;
-  min-height: calc(100vh - var(--app-tab-bar-h) - 28px);
+  min-height: calc(100vh - 28px);
   overflow: hidden;
   display: flex;
   flex-direction: column;

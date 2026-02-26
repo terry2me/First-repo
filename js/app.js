@@ -1515,31 +1515,12 @@ function initSP500Btn() {
 /* ══════════════════════════════════════════════
    초기화
 ══════════════════════════════════════════════ */
-/* ══════════════════════════════════════════════
-   앱 최상단 탭 전환
-══════════════════════════════════════════════ */
-function initAppTabs() {
-  document.querySelectorAll('.app-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tabId = btn.dataset.tab;
-      // 버튼 활성화
-      document.querySelectorAll('.app-tab').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      // 콘텐츠 전환
-      document.querySelectorAll('.app-tab-content').forEach(el => {
-        el.classList.toggle('hidden', el.id !== `tab-${tabId}`);
-      });
-    });
-  });
-}
-
 async function init() {
   showGlobalLoading(true);
   try { await Storage.init(); }
   catch (e) { console.error('[App] Storage 초기화 실패:', e); }
   showGlobalLoading(false);
 
-  initAppTabs();
   initHeaderControls();
   initAddTab();
   initSearch();
