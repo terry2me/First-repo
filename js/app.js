@@ -636,34 +636,72 @@ async function doRefreshAll(dbOnly = false) {
   });
   if (!allStocks.length) return;
 
+  const loadEl = document.getElementById('listLoading');
+
+  if (dbOnly) {
+    /* ── DB 전용 (일봉/주봉 버튼 클릭) ──────────────────────────────────
+     * 로딩 오버레이 없이 백그라운드에서 조용히 리스트 갱신.
+     * 현재 리스트는 그대로 유지되다가 종목별로 즉시 교체됨.
+     * ─────────────────────────────────────────────────────────────────── */
+    allStocks.forEach(s => {
+      if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
+        AppState.watchData[s.code] = null;
+      }
+    });
+
+    const onProgressDB = (code, res, err) => {
+      if (res) {
+        const analyzed = Indicators.analyzeAll(res);
+        AppState.watchData[code] = analyzed;
+        _refreshListItem(code);
+        if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+      } else {
+        console.warn(`[DB-only ${code}] 조회 실패:`, err?.message);
+      }
+    };
+
+    // concurrency=20: DB 조회는 ~20ms로 빠르므로 높은 병렬도 사용
+    await API.fetchMultipleFast(allStocks, AppState.candleCount, AppState.listInterval,
+                                onProgressDB, 20, true);
+
+    setLastUpdated();
+    renderList();
+    if (AppState.previewCode && AppState.watchData[AppState.previewCode]) {
+      AppState.previewData = AppState.watchData[AppState.previewCode];
+      renderPreview(AppState.previewData);
+    }
+    return;  // 펀더멘털은 이미 캐시에 있으므로 재조회 불필요
+  }
+
+  /* ── 새로고침 버튼 (yfinance 포함) ──────────────────────────────────── */
   const total = allStocks.length;
   let done = 0;
-  const loadEl = document.getElementById('listLoading');
   const setMsg = msg => { const s = loadEl.querySelector('span'); if (s) s.textContent = msg; };
   loadEl.style.display = 'flex';
   setMsg(`데이터 로드 중... (0/${total})`);
 
-  // watchData에 모든 종목 키 선점 — 새 종목이 있어도 hasOwnProperty 체크 통과
   allStocks.forEach(s => {
     if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
       AppState.watchData[s.code] = null;
     }
   });
 
-  // 캔들 데이터 조회 (펀더멘털은 백그라운드 실행 — 로딩 블로킹 안 함)
-  await API.fetchMultiple(allStocks, AppState.candleCount, AppState.listInterval, (code, res, err) => {
+  const onProgress = (code, res, err) => {
     done++;
     if (res) {
       const analyzed = Indicators.analyzeAll(res);
       AppState.watchData[code] = analyzed;
       _refreshListItem(code);
-      // 이름이 깨진 경우 교정 (새로고침 시에도 이름 동기화)
       if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
     } else {
       console.warn(`[${code}] 조회 실패:`, err?.message);
     }
     setMsg(`데이터 로드 중... (${done}/${total})`);
-  }, dbOnly);
+  };
+
+  // 새로고침: fetchMultiple (/api/refresh → yfinance → /api/stocks)
+  await API.fetchMultiple(allStocks, AppState.candleCount, AppState.listInterval,
+                          onProgress, false);
 
   loadEl.style.display = 'none';
   setLastUpdated();
