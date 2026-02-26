@@ -330,10 +330,21 @@ def get_today_str(market: str) -> str:
 # ══════════════════════════════════════════════════════════
 #  ticker 유틸
 # ══════════════════════════════════════════════════════════
+
+# yfinance에서 실제 사용하는 티커가 표준 코드와 다른 경우 매핑
+# BRK.B / BF.B : S&P500 CSV는 점(.) 사용, yfinance는 하이픈(-) 사용
+# FI : S&P500 CSV 코드, yfinance에서는 FISV(Fiserv) 로 조회됨
+_TICKER_ALIAS: dict[str, str] = {
+    "BRK.B": "BRK-B",   # Berkshire Hathaway B
+    "BF.B":  "BF-B",    # Brown-Forman B
+    "FI":    "FISV",    # Fiserv (S&P CSV 코드 FI → yfinance FISV)
+}
+
 def resolve_ticker(code: str, market: str) -> str:
     """코드 + 시장 → yfinance ticker 문자열"""
     if market == "US":
-        return code.upper()
+        upper = code.upper()
+        return _TICKER_ALIAS.get(upper, upper)
     code_clean = code.replace(".KS", "").replace(".KQ", "")
     return f"{code_clean.zfill(6)}.KS"
 
