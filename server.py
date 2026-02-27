@@ -392,7 +392,7 @@ def _yf_fetch_meta(ticker_str: str) -> dict:
         t = yf.Ticker(ticker_str)
         info = t.info or {}
         return {
-            "name":           info.get("longName") or info.get("shortName") or "",
+            "name":           info.get("longName") or info.get("shortName") or "",  # 없으면 빈 문자열
             "currency":       info.get("currency", ""),
             "sector":         info.get("sector"),
             "trailing_pe":    info.get("trailingPE"),
@@ -659,15 +659,12 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
         print(f"[yfinance] {ticker} meta 조회")
         yf_data = _yf_fetch_meta(ticker)
         if yf_data:
-            raw_name = yf_data.get("name", "").strip()
-            # yfinance가 이름을 못 가져오면 ticker_str 대신 빈 문자열로 두고,
-            # 기존 DB에 정상 이름이 있으면 유지
-            if not raw_name or raw_name == ticker:
-                existing = db_get_meta(ticker)
-                raw_name = (existing or {}).get("name", "") or ""
-            name     = raw_name or ticker.replace(".KS", "").replace(".KQ", "")
+            name     = yf_data.get("name", "").strip()
             currency = yf_data.get("currency", "")
-            db_upsert_meta(ticker, name, currency, market)
+            if name:  # yfinance에서 이름을 가져온 경우에만 저장
+                db_upsert_meta(ticker, name, currency, market)
+            else:
+                print(f"[yfinance] {ticker} name 없음 → 기존 값 유지")
             db_upsert_fundamentals(ticker, yf_data)
             print(f"[DB] {ticker} meta/fund 저장 완료")
         else:
@@ -675,7 +672,7 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
             # fetched_at=현재시각으로 저장 → 다음 거래일 전까지 재시도 안 함
             print(f"[yfinance] {ticker} meta 조회 실패 → sentinel 저장 (재시도 억제)")
             if meta is None:
-                db_upsert_meta(ticker, ticker, "USD" if market == "US" else "KRW", market)
+                db_upsert_meta(ticker, "", "USD" if market == "US" else "KRW", market)
             if fund is None:
                 db_upsert_fundamentals(ticker, {})  # 빈 값, fetched_at=now → 오늘은 재시도 안 함
 
