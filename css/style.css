@@ -48,10 +48,11 @@
   /* 앱 탭바 높이 */
 }
 
-html { height:100%; }
-body { min-height:100%; font-family:var(--font); background:var(--bg-base);
-       color:var(--text-primary); font-size:13px; line-height:1.5; overflow-x:hidden;
-       overflow-y:auto; }
+html, body { height:100%; overflow:hidden; }
+body { font-family:var(--font); background:var(--bg-base);
+       color:var(--text-primary); font-size:13px; line-height:1.5; overflow-x:hidden; }
+
+.app-tab-content { height:100%; }
 
 
 /* ── 일봉/주봉 토글 ── */
@@ -97,9 +98,10 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
   display:flex;
   gap:14px;
   padding:14px;
-  /* header 없으므로 탭바 높이만 제외, 내용 길이에 따라 자유 성장 */
-  min-height: 100vh;
+  height: 100vh;
+  box-sizing: border-box;
   align-items: stretch;
+  overflow: hidden;
 }
 .panel {
   background:var(--bg-surface); border:1px solid var(--border);
@@ -109,13 +111,13 @@ body { min-height:100%; font-family:var(--font); background:var(--bg-base);
 /* 좌패널: 내용 길면 자체 스크롤 */
 .panel-left  {
   width:680px; flex-shrink:0;
-  min-height: calc(100vh - 28px);
+  height: 100%;
   overflow-y: auto;
 }
 /* 우패널: list-scroll-wrap이 내부 스크롤 담당 */
 .panel-right {
   flex:1; min-width:0; position:relative;
-  min-height: calc(100vh - 28px);
+  height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -986,9 +988,10 @@ input[type="checkbox"] { width:14px; height:14px; accent-color:var(--accent); cu
   .header-center { gap:8px; }
 }
 @media (max-width:900px) {
+  html, body { height:auto; overflow:auto; }
   .main-layout { flex-direction:column; height:auto; overflow:auto; }
-  .panel-left  { width:100%; }
-  .panel-right { min-height:400px; }
+  .panel-left  { width:100%; height:auto; min-height:300px; }
+  .panel-right { height:auto; min-height:400px; }
   .header { flex-wrap:wrap; height:auto; padding:10px 14px; gap:8px; }
   .header-center { order:3; width:100%; justify-content:center; flex-wrap:wrap; }
 }
