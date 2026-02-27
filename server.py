@@ -588,14 +588,13 @@ def db_get_fundamentals(ticker: str) -> Optional[dict]:
 # ══════════════════════════════════════════════════════════
 #  핵심 조회 로직
 # ══════════════════════════════════════════════════════════
-def ensure_prices(ticker: str, market: str, interval: str) -> bool:
+def ensure_prices(ticker: str, market: str, interval: str, force: bool = False) -> bool:
     """
-    DB에 오늘 날짜 있으면 → 그대로
-    없으면 → yfinance로 마지막날짜 포함~오늘 조회 → DB 저장
+    force=False(기본): DB에 오늘 날짜 있으면 캐시 사용
+    force=True(새로고침): 캐시 무시, DB 마지막 날짜부터 yfinance 재조회 → 덮어쓰기
     반환: 성공 여부
     """
-    # 오늘 데이터 이미 있으면 패스
-    if db_has_today(ticker, interval, market):
+    if not force and db_has_today(ticker, interval, market):
         print(f"[cache] {ticker} ({interval}) 오늘 데이터 있음 → DB 사용")
         return True
 
@@ -833,7 +832,7 @@ async def refresh_tab_stocks(req: BatchRequest):
         market = s.get("market") or resolve_market(code)
         ticker = resolve_ticker(code, market)
         try:
-            ok = ensure_prices(ticker, market, req.interval)
+            ok = ensure_prices(ticker, market, req.interval, force=True)
             if not ok:
                 return {"code": code, "data": None, "error": "데이터 없음"}
             ensure_meta_and_fundamentals(ticker, market)
