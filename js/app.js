@@ -122,15 +122,21 @@ function initHeaderControls() {
     btn.classList.toggle('active', btn.dataset.interval === AppState.previewInterval);
     btn.addEventListener('click', async () => {
       if (AppState.previewInterval === btn.dataset.interval) return;
+
+      // 버튼 잠금 — 배치 완료 전 중복 클릭 방지
+      const allBtns = document.querySelectorAll('.interval-btn');
+      allBtns.forEach(b => b.disabled = true);
+
       AppState.previewInterval = btn.dataset.interval;
-      AppState.listInterval    = btn.dataset.interval;  // 리스트 interval 동기화
+      AppState.listInterval    = btn.dataset.interval;
       await Storage.setInterval(AppState.previewInterval);
-      document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      // 미리보기: DB만 읽어서 재표시
-      if (AppState.previewCode) doSearch(AppState.previewCode, true);
-      // 리스트: 새 interval 로 DB만 재조회
-      doRefreshAll(true);
+      allBtns.forEach(b => b.classList.toggle('active', b === btn));
+
+      // 배치 1회 호출 → 미리보기 우선 렌더 → 리스트 순차 렌더
+      await _intervalSwitch(AppState.previewInterval);
+
+      // 버튼 잠금 해제
+      allBtns.forEach(b => b.disabled = false);
     });
   });
 
@@ -618,9 +624,75 @@ function hideSearchError()    { document.getElementById('searchError').style.dis
 function showSearchLoading(v) { document.getElementById('searchLoading').style.display = v ? 'flex' : 'none'; }
 
 /* ══════════════════════════════════════════════
+   일봉/주봉 전환 — API 1회 배치 조회
+   1. POST /api/stock/batch (전체 종목, 새 interval)
+   2. 응답 배열에서 previewCode 먼저 → renderPreview()
+   3. 나머지 순차 → _refreshListItem()
+   4. previewCode가 탭에 없으면 → POST /api/stock 1회 별도
+══════════════════════════════════════════════ */
+async function _intervalSwitch(interval) {
+  // 전체 탭 종목 수집
+  const allCodes  = new Set();
+  const allStocks = [];
+  Storage.getTabs().forEach(tab => {
+    tab.stocks.forEach(s => {
+      if (!allCodes.has(s.code)) { allCodes.add(s.code); allStocks.push(s); }
+    });
+  });
+
+  // watchData 키 선점
+  allStocks.forEach(s => {
+    if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
+      AppState.watchData[s.code] = null;
+    }
+  });
+
+  // ① 배치 1회 조회 (DB only)
+  const batchResults = await API.fetchBatch(
+    allStocks, AppState.candleCount, interval, null  // onProgress 없이 배열로 받음
+  );
+
+  // code → analyzed 맵 구성
+  const dataMap = new Map();
+  batchResults.forEach((res, i) => {
+    if (!res) return;
+    const analyzed = Indicators.analyzeAll(res);
+    AppState.watchData[allStocks[i].code] = analyzed;
+    dataMap.set(allStocks[i].code, analyzed);
+    if (analyzed.name) _fixStockNameIfNeeded(allStocks[i].code, analyzed.name);
+  });
+
+  // ② 미리보기 우선 렌더
+  if (AppState.previewCode) {
+    if (dataMap.has(AppState.previewCode)) {
+      // 탭에 있는 종목 → 배치 결과에서 바로 렌더
+      const analyzed = dataMap.get(AppState.previewCode);
+      AppState.previewData = analyzed;
+      renderPreview(analyzed);
+    } else {
+      // 탭에 없는 종목 (검색 결과) → 별도 1회 조회
+      try {
+        const raw      = await API.fetchStock(AppState.previewCode, AppState.candleCount, interval);
+        const analyzed = Indicators.analyzeAll(raw);
+        AppState.previewData = analyzed;
+        renderPreview(analyzed);
+      } catch (e) {
+        console.warn('[interval-switch] 미리보기 조회 실패:', e.message);
+      }
+    }
+  }
+
+  // ③ 리스트 순차 렌더
+  allStocks.forEach(s => _refreshListItem(s.code));
+  setLastUpdated();
+  renderList();
+}
+
+/* ══════════════════════════════════════════════
    우단 전체 새로고침
 ══════════════════════════════════════════════ */
-async function doRefreshAll(dbOnly = false) {
+async function doRefreshAll() {
+  /* ── 새로고침 버튼 (yfinance 포함) ──────────────────────────────────── */
   const allCodes  = new Set();
   const allStocks = [];
   Storage.getTabs().forEach(tab => {
@@ -630,40 +702,6 @@ async function doRefreshAll(dbOnly = false) {
   });
   if (!allStocks.length) return;
 
-  if (dbOnly) {
-    /* ── DB 전용 (일봉/주봉 버튼 클릭) ──────────────────────────────────
-     * 로딩 오버레이 없이 백그라운드에서 조용히 리스트 갱신.
-     * POST /api/stock/batch — 서버 내부 병렬, yfinance 절대 없음
-     * ─────────────────────────────────────────────────────────────────── */
-    allStocks.forEach(s => {
-      if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
-        AppState.watchData[s.code] = null;
-      }
-    });
-
-    await API.fetchBatch(allStocks, AppState.candleCount, AppState.listInterval,
-      (code, res, err) => {
-        if (res) {
-          const analyzed = Indicators.analyzeAll(res);
-          AppState.watchData[code] = analyzed;
-          _refreshListItem(code);
-          if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
-        } else {
-          console.warn(`[batch ${code}] 조회 실패:`, err?.message);
-        }
-      }
-    );
-
-    setLastUpdated();
-    renderList();
-    if (AppState.previewCode && AppState.watchData[AppState.previewCode]) {
-      AppState.previewData = AppState.watchData[AppState.previewCode];
-      renderPreview(AppState.previewData);
-    }
-    return;
-  }
-
-  /* ── 새로고침 버튼 (yfinance 포함) ──────────────────────────────────── */
   const loadEl = document.getElementById('listLoading');
   const total  = allStocks.length;
   let done = 0;
