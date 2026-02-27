@@ -122,10 +122,12 @@ function initHeaderControls() {
     btn.classList.toggle('active', btn.dataset.interval === AppState.previewInterval);
     btn.addEventListener('click', async () => {
       if (AppState.previewInterval === btn.dataset.interval) return;
+      // JS 플래그로 중복 클릭 방지 (CSS disabled만으로는 부족)
+      if (btn._switching) return;
 
       // 버튼 잠금 — 배치 완료 전 중복 클릭 방지
       const allBtns = document.querySelectorAll('.interval-btn');
-      allBtns.forEach(b => b.disabled = true);
+      allBtns.forEach(b => { b.disabled = true; b._switching = true; });
 
       AppState.previewInterval = btn.dataset.interval;
       AppState.listInterval    = btn.dataset.interval;
@@ -136,7 +138,7 @@ function initHeaderControls() {
       await _intervalSwitch(AppState.previewInterval);
 
       // 버튼 잠금 해제
-      allBtns.forEach(b => b.disabled = false);
+      allBtns.forEach(b => { b.disabled = false; b._switching = false; });
     });
   });
 
@@ -684,6 +686,8 @@ async function _intervalSwitch(interval) {
 
   // ③ 리스트 순차 렌더
   allStocks.forEach(s => _refreshListItem(s.code));
+  // watchData → AppState.fundamentals 동기화 (펀더멘털·섹터 표시)
+  _syncFundamentalsFromWatchData();
   setLastUpdated();
   renderList();
 }
@@ -732,6 +736,8 @@ async function doRefreshAll() {
   );
 
   loadEl.style.display = 'none';
+  // watchData → AppState.fundamentals 동기화 (펀더멘털·섹터 표시)
+  _syncFundamentalsFromWatchData();
   setLastUpdated();
   renderList();
   if (AppState.previewCode && AppState.watchData[AppState.previewCode]) {
@@ -1598,6 +1604,8 @@ async function init() {
     );
 
     setLastUpdated();
+    // watchData → AppState.fundamentals 동기화 (리스트 펀더멘털·섹터 표시)
+    _syncFundamentalsFromWatchData();
     renderList();
   }
 }
