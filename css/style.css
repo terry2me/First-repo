@@ -48,7 +48,7 @@
   /* 앱 탭바 높이 */
 }
 
-html, body { height:100%; overflow:hidden; }
+html, body { height:100%; }
 body { font-family:var(--font); background:var(--bg-base);
        color:var(--text-primary); font-size:13px; line-height:1.5; overflow-x:hidden; }
 
@@ -98,26 +98,28 @@ body { font-family:var(--font); background:var(--bg-base);
   display:flex;
   gap:14px;
   padding:14px;
-  height: 100vh;
+  min-height: 100vh;
   box-sizing: border-box;
-  align-items: stretch;
-  overflow: hidden;
+  align-items: flex-start;
+  overflow-x: hidden;
 }
 .panel {
   background:var(--bg-surface); border:1px solid var(--border);
   border-radius:var(--radius-lg); display:flex; flex-direction:column;
   /* overflow:hidden 제거 → 각 패널 내부에서 독립 스크롤 */
 }
-/* 좌패널: 내용 길면 자체 스크롤 */
+/* 좌패널: 뷰포트에 고정, 내부 스크롤 */
 .panel-left  {
   width:680px; flex-shrink:0;
-  height: 100%;
+  height: calc(100vh - 28px);
   overflow-y: auto;
+  position: sticky;
+  top: 0;
 }
-/* 우패널: list-scroll-wrap이 내부 스크롤 담당 */
+/* 우패널: 자체 높이로 성장, 내부 스크롤 담당 */
 .panel-right {
   flex:1; min-width:0; position:relative;
-  height: 100%;
+  height: calc(100vh - 28px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
