@@ -634,7 +634,7 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
     meta = db_get_meta(ticker)
     fund = db_get_fundamentals(ticker)
 
-    # 펀더멘털 갱신 필요 여부 판단 (마지막 거래일 1회, 단 sector가 없으면 강제 갱신)
+    # 펀더멘털 갱신 필요 여부 판단 (마지막 거래일 1회)
     need_fund = force or fund is None
     if fund and fund.get("fetched_at"):
         try:
@@ -642,17 +642,17 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
             last_trading = get_last_trading_date(market)
             fetched_date = fetched.strftime("%Y-%m-%d")
             if fetched_date >= last_trading:
-                # sector가 null이면 강제 갱신 (마이그레이션)
-                if fund.get("sector") is None and market == "US":
-                    need_fund = True
-                else:
-                    need_fund = False
+                need_fund = False
             else:
                 need_fund = True
         except Exception:
             need_fund = True
     elif fund and fund.get("fetched_at") is None:
-        # fetched_at이 None인 레거시 레코드 → 재시도
+        need_fund = True
+
+    # name이 비어있거나 ticker/숫자코드 그대로인 경우 → 이전 조회 실패 → 무조건 재시도
+    _bad_name = lambda n: not n or n == ticker or n.replace(".KS","").replace(".KQ","") == n and n.isdigit()
+    if meta is not None and _bad_name((meta.get("name") or "").strip()):
         need_fund = True
 
     if meta is None or need_fund:
