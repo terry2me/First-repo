@@ -392,7 +392,7 @@ def _yf_fetch_meta(ticker_str: str) -> dict:
         t = yf.Ticker(ticker_str)
         info = t.info or {}
         return {
-            "name":           info.get("longName") or info.get("shortName") or ticker_str,
+            "name":           info.get("longName") or info.get("shortName") or "",
             "currency":       info.get("currency", ""),
             "sector":         info.get("sector"),
             "trailing_pe":    info.get("trailingPE"),
@@ -659,7 +659,13 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
         print(f"[yfinance] {ticker} meta 조회")
         yf_data = _yf_fetch_meta(ticker)
         if yf_data:
-            name     = yf_data.get("name", ticker)
+            raw_name = yf_data.get("name", "").strip()
+            # yfinance가 이름을 못 가져오면 ticker_str 대신 빈 문자열로 두고,
+            # 기존 DB에 정상 이름이 있으면 유지
+            if not raw_name or raw_name == ticker:
+                existing = db_get_meta(ticker)
+                raw_name = (existing or {}).get("name", "") or ""
+            name     = raw_name or ticker.replace(".KS", "").replace(".KQ", "")
             currency = yf_data.get("currency", "")
             db_upsert_meta(ticker, name, currency, market)
             db_upsert_fundamentals(ticker, yf_data)
