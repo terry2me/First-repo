@@ -696,31 +696,25 @@ async function _intervalSwitch(interval) {
    우단 전체 새로고침
 ══════════════════════════════════════════════ */
 async function doRefreshAll() {
-  /* ── 새로고침 버튼 (yfinance 포함) ──────────────────────────────────── */
-  const allCodes  = new Set();
-  const allStocks = [];
-  Storage.getTabs().forEach(tab => {
-    tab.stocks.forEach(s => {
-      if (!allCodes.has(s.code)) { allCodes.add(s.code); allStocks.push(s); }
-    });
-  });
-  if (!allStocks.length) return;
+  /* ── 새로고침 버튼 — 현재 탭 종목만 yfinance 포함 갱신 ── */
+  const tabStocks = Storage.getWatchlist();   // 현재 탭 종목만
+  if (!tabStocks.length) return;
 
   const loadEl = document.getElementById('listLoading');
-  const total  = allStocks.length;
+  const total  = tabStocks.length;
   let done = 0;
   const setMsg = msg => { const s = loadEl.querySelector('span'); if (s) s.textContent = msg; };
   loadEl.style.display = 'flex';
   setMsg(`데이터 로드 중... (0/${total})`);
 
-  allStocks.forEach(s => {
+  tabStocks.forEach(s => {
     if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
       AppState.watchData[s.code] = null;
     }
   });
 
-  // 새로고침: 개별 POST /api/stock 순차 호출 (DB 우선, 없으면 yfinance)
-  await API.fetchMultiple(allStocks, AppState.candleCount, AppState.listInterval,
+  // POST /api/stock/refresh — 서버 순차 실행, yfinance 포함 (현재 탭 종목만)
+  await API.fetchRefresh(tabStocks, AppState.candleCount, AppState.listInterval,
     (code, res, err) => {
       done++;
       if (res) {

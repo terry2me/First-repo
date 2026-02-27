@@ -145,25 +145,53 @@ const API = (() => {
   }
 
   /**
-   * fetchMultiple — 새로고침 버튼(G)용
-   * 개별 POST /api/stock 순차 호출 (yfinance 포함, rate-limit 대비 딜레이)
+   * fetchRefresh — 새로고침 버튼(G)용
+   * POST /api/stock/refresh : 현재 탭 종목, yfinance 포함, 서버 순차 실행
+   * onProgress(code, data|null, error|null) 콜백
+   */
+  async function fetchRefresh(stocks, candleCount, interval, onProgress) {
+    if (!stocks || stocks.length === 0) return [];
+
+    const body = {
+      stocks:       stocks.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
+      interval,
+      candle_count: candleCount,
+    };
+
+    let results;
+    try {
+      const res = await fetch(`${BASE}/api/stock/refresh`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      ({ results } = await res.json());
+    } catch (e) {
+      console.warn('[API] fetchRefresh 실패:', e.message);
+      stocks.forEach(s => onProgress?.(s.code, null, e));
+      return stocks.map(() => null);
+    }
+
+    return results.map((r, i) => {
+      const s = stocks[i];
+      if (r.data) {
+        const normalized = _normalize(r.data);
+        onProgress?.(s.code, normalized, null);
+        return normalized;
+      } else {
+        const err = new Error(r.error || '데이터 없음');
+        onProgress?.(s.code, null, err);
+        return null;
+      }
+    });
+  }
+
+  /**
+   * fetchMultiple — fetchRefresh 래퍼 (하위 호환)
    */
   async function fetchMultiple(stocks, candleCount, interval, onProgress) {
-    if (!stocks || stocks.length === 0) return [];
-    const results = [];
-    for (const s of stocks) {
-      try {
-        const data = await fetchStock(s.code, candleCount, interval, s.market || null);
-        onProgress?.(s.code, data, null);
-        results.push(data);
-      } catch (e) {
-        onProgress?.(s.code, null, e);
-        results.push(null);
-      }
-      // yfinance 블록 방지: 300ms 딜레이
-      await _sleep(300);
-    }
-    return results;
+    return fetchRefresh(stocks, candleCount, interval, onProgress);
   }
 
   /* ── 펀더멘털 (하위 호환 shim — fetchStock 응답에 포함됨) ── */
@@ -223,6 +251,7 @@ const API = (() => {
   return {
     fetchStock,
     fetchBatch,
+    fetchRefresh,
     fetchConfig,
     saveConfig,
     // 하위 호환

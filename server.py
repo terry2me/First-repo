@@ -822,7 +822,35 @@ async def get_stock_batch(req: BatchRequest):
     return {"results": list(results)}
 
 
-# ── 전체 새로고침 (백그라운드) ─────────────────────────────
+# ── 탭 새로고침 (yfinance 포함, 순차) ─────────────────────────
+# 새로고침 버튼 — 현재 탭 종목만 대상
+# DB 우선, 없으면 yfinance → DB 저장 → 반환
+# 순차 실행 + 0.5s 딜레이로 yfinance rate-limit 방지
+@app.post("/api/stock/refresh")
+async def refresh_tab_stocks(req: BatchRequest):
+    def _refresh_one(s: dict) -> dict:
+        code   = s.get("code", "")
+        market = s.get("market") or resolve_market(code)
+        ticker = resolve_ticker(code, market)
+        try:
+            ok = ensure_prices(ticker, market, req.interval)
+            if not ok:
+                return {"code": code, "data": None, "error": "데이터 없음"}
+            ensure_meta_and_fundamentals(ticker, market)
+            data = build_response(ticker, market, req.interval, req.candle_count)
+            return {"code": code, "data": data}
+        except Exception as e:
+            return {"code": code, "data": None, "error": str(e)}
+
+    results = []
+    loop = asyncio.get_event_loop()
+    for s in req.stocks:
+        result = await loop.run_in_executor(_executor, _refresh_one, s)
+        results.append(result)
+        await asyncio.sleep(0.5)   # yfinance rate-limit 방지
+    return {"results": results}
+
+
 def _do_refresh(stocks: list[dict], interval: str, candle_count: int):
     """백그라운드에서 순차 실행 (0.5초 딜레이)"""
     global refresh_status
