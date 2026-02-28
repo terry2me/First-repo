@@ -544,10 +544,13 @@ function renderPreview(data) {
   // leftPanelTitle 제거됨 — 종목명은 previewName에만 표시
 
   const regBtn = document.getElementById('btnRegister');
-  regBtn.disabled = false;
-  regBtn.innerHTML = '<i class="fas fa-plus-circle"></i> 등록';
-  regBtn.style.display = 'flex';
-  document.getElementById('previewCard').style.display = 'flex';
+  if (regBtn) {
+    regBtn.disabled = false;
+    regBtn.innerHTML = '<i class="fas fa-plus-circle"></i> 등록';
+    regBtn.style.display = 'flex';
+  }
+  const previewCard = document.getElementById('previewCard');
+  if (previewCard) previewCard.style.display = 'flex';
 
   // 상관관계 섹션: 등록 종목이 2개 이상일 때만 표시
   renderCorrSection(data.code);
@@ -604,10 +607,10 @@ async function _bgRefreshStock(input, registeredCode) {
 }
 
 function hidePreview() {
-  document.getElementById('previewCard').style.display = 'none';
+  const previewCard2 = document.getElementById('previewCard');
+  if (previewCard2) previewCard2.style.display = 'none';
   const regBtn = document.getElementById('btnRegister');
-  regBtn.style.display = 'none';
-  regBtn.disabled = true;
+  if (regBtn) { regBtn.style.display = 'none'; regBtn.disabled = true; }
   // leftPanelTitle 제거됨
   ['eomSection', 'rsiStochSection'].forEach(id => {
     const el = document.getElementById(id);
