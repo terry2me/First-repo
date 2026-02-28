@@ -1133,8 +1133,8 @@ def _fetch_nasdaq100_tickers() -> list[dict]:
         for row in rows[1:]:
             cols = row.find_all('td')
             if len(cols) >= 2:
-                name = cols[0].text.strip()
-                code = cols[1].text.strip()
+                code = cols[0].text.strip()
+                name = cols[1].text.strip()
                 if code:
                     result.append({"code": code, "name": name, "market": "US", "sector": ""})
     return result
@@ -1159,6 +1159,8 @@ def _fetch_kospi200_tickers() -> list[dict]:
                     name = cols[0].text.strip()
                     code = cols[1].text.strip()
                     if code:
+                        if not code.endswith(".KS"):
+                            code += ".KS"
                         result.append({"code": code, "name": name, "market": "KS", "sector": ""})
             break
     return result
