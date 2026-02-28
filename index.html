@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>📈 볼린저 밴드 주식 모니터</title>
-  <link rel="stylesheet" href="css/style.css?v=20260228_2" />
+  <link rel="stylesheet" href="css/style.css?v=20260228_10" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap"
@@ -270,6 +270,21 @@
                     class="fas fa-sort"></i></span></span>
               <div class="col-resizer" data-col="sector"></div>
             </div>
+            <div class="col-header col-corr-pos" data-col-id="corrPos">
+              <span class="sort-col" data-col="corrPos">상<span class="sort-icon" id="sort-corrPos"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="corrPos"></div>
+            </div>
+            <div class="col-header col-corr-neu" data-col-id="corrNeu">
+              <span class="sort-col" data-col="corrNeu">중<span class="sort-icon" id="sort-corrNeu"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="corrNeu"></div>
+            </div>
+            <div class="col-header col-corr-neg" data-col-id="corrNeg">
+              <span class="sort-col" data-col="corrNeg">하<span class="sort-icon" id="sort-corrNeg"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="corrNeg"></div>
+            </div>
             <div class="col-header col-action">상세</div>
           </div>
 
@@ -321,12 +336,13 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=20260228_1"></script>
-  <script src="js/storage.js?v=20260228_1"></script>
-  <script src="js/api.js?v=20260228_1"></script>
-  <script src="js/indicators.js?v=20260228_1"></script>
-  <script src="js/charts.js?v=20260228_1"></script>
-  <script src="js/app.js?v=20260228_1"></script>
+  <script src="js/config.js?v=20260228_10"></script>
+  <script src="js/storage.js?v=20260228_10"></script>
+  <script src="js/api.js?v=20260228_10"></script>
+  <script src="js/analysis.js?v=20260228_10"></script>
+  <script src="js/indicators.js?v=20260228_10"></script>
+  <script src="js/charts.js?v=20260228_10"></script>
+  <script src="js/app.js?v=20260228_10"></script>
 
 </body>
 

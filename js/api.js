@@ -42,11 +42,11 @@ const API = (() => {
         검색(B), 행 클릭(F), 일봉/주봉 미리보기(D/E) 공통
   ══════════════════════════════════════════════ */
   async function fetchStock(input, candleCount, interval = '1d', forceMarket = null) {
-    const code   = input.trim().toUpperCase().replace(/\.(KS|KQ)$/i, '');
+    const code = input.trim().toUpperCase().replace(/\.(KS|KQ)$/i, '');
     const market = forceMarket || _guessMarket(code);
 
     const res = await fetch(`${BASE}/api/stock`, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, market, interval, candle_count: candleCount }),
     });
@@ -69,7 +69,7 @@ const API = (() => {
     if (!stocks || stocks.length === 0) return [];
 
     const body = {
-      stocks:       stocks.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
+      stocks: stocks.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
       interval,
       candle_count: candleCount,
     };
@@ -77,9 +77,9 @@ const API = (() => {
     let results;
     try {
       const res = await fetch(`${BASE}/api/stock/batch`, {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       ({ results } = await res.json());
@@ -119,13 +119,13 @@ const API = (() => {
   ══════════════════════════════════════════════ */
   async function saveConfig(tabs, settings) {
     const body = {};
-    if (tabs     !== undefined) body.tabs     = tabs;
+    if (tabs !== undefined) body.tabs = tabs;
     if (settings !== undefined) body.settings = settings;
 
     const res = await fetch(`${BASE}/api/config`, {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`/api/config POST 실패: ${res.status}`);
     return res.json();
@@ -156,22 +156,22 @@ const API = (() => {
     for (let i = 0; i < stocks.length; i++) {
       const s = stocks[i];
       const body = {
-        stocks:       [{ code: s.code, market: s.market || _guessMarket(s.code) }],
+        stocks: [{ code: s.code, market: s.market || _guessMarket(s.code) }],
         interval,
         candle_count: candleCount,
       };
 
       try {
         const res = await fetch(`${BASE}/api/stock/refresh`, {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify(body),
+          body: JSON.stringify(body),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        
+
         const { results: batchResults } = await res.json();
         const r = batchResults[0]; // Since we sent only 1 stock
-        
+
         if (r && r.data) {
           const normalized = _normalize(r.data);
           onProgress?.(s.code, normalized, null);
@@ -220,31 +220,32 @@ const API = (() => {
   /* ── 응답 정규화 ── */
   function _normalize(d) {
     return {
-      code:           d.code,
-      market:         d.market,
-      ticker:         d.ticker,
-      name:           d.name,
-      currency:       d.currency,
-      isUS:           d.isUS,
-      interval:       d.interval,
-      candleCount:    d.candleCount,
-      currentPrice:   d.currentPrice,
-      prevClose:      d.prevClose,
-      todayChange:    d.todayChange,
+      code: d.code,
+      market: d.market,
+      ticker: d.ticker,
+      name: d.name,
+      currency: d.currency,
+      isUS: d.isUS,
+      interval: d.interval,
+      candleCount: d.candleCount,
+      currentPrice: d.currentPrice,
+      prevClose: d.prevClose,
+      todayChange: d.todayChange,
       todayChangePct: d.todayChangePct,
-      change:         d.change,
-      changePct:      d.changePct,
-      candles:        d.candles     || [],
-      allCandles:     d.allCandles  || [],
-      closes:         d.closes      || [],
-      trailingPE:     d.trailingPE     ?? null,
-      forwardPE:      d.forwardPE      ?? null,
-      pbr:            d.pbr            ?? null,
-      evToEbitda:     d.evToEbitda     ?? null,
-      dividendYield:  d.dividendYield  ?? null,
-      eps:            d.eps            ?? null,
-      beta:           d.beta           ?? null,
-      sector:         d.sector         ?? null,
+      change: d.change,
+      changePct: d.changePct,
+      candles: d.candles || [],
+      allCandles: d.allCandles || [],
+      closes: d.closes || [],
+      trailingPE: d.trailingPE ?? null,
+      forwardPE: d.forwardPE ?? null,
+      pbr: d.pbr ?? null,
+      evToEbitda: d.evToEbitda ?? null,
+      dividendYield: d.dividendYield ?? null,
+      eps: d.eps ?? null,
+      beta: d.beta ?? null,
+      sector: d.sector ?? null,
+      correlations: d.correlations ?? null,
     };
   }
 

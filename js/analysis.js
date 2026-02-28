@@ -491,41 +491,16 @@ async function anDoSearch(input) {
 /* ══════════════════════════════════════════════
    상관관계
 ══════════════════════════════════════════════ */
-function _anCalcCorrelations(targetCode) {
-  const targetData = AnState.watchData[targetCode];
-  if (!targetData?.allCandles?.length) return null;
-  const tab = AnStorage.getActiveTab();
-  if (!tab) return null;
-  const others = tab.stocks.filter(s => s.code !== targetCode);
-  if (!others.length) return null;
-
-  const results = [];
-  for (const s of others) {
-    const d = AnState.watchData[s.code];
-    if (!d?.allCandles?.length) continue;
-    const r = _pearson(targetData.allCandles, d.allCandles); // app.js의 _pearson 재사용
-    if (r === null) continue;
-    results.push({ code: s.code, name: d.name || s.name || s.code, r });
-  }
-  if (!results.length) return null;
-  results.sort((a, b) => b.r - a.r);
-
-  const posCode = results[0].code;
-  const negCode = results[results.length - 1].code;
-  const neuCandidates = results.filter(x => x.code !== posCode && x.code !== negCode);
-  const neuPool = neuCandidates.length ? neuCandidates : results;
-  const neu = neuPool.reduce((best, x) => Math.abs(x.r) < Math.abs(best.r) ? x : best);
-
-  return { pos: results[0], neu, neg: results[results.length - 1] };
-}
 
 function anRenderCorrSection(targetCode) {
   const sec = _anEl('corrSection');
   if (!sec) return;
-  const result = _anCalcCorrelations(targetCode);
-  if (!result) { sec.style.display = 'none'; return; }
+  const targetData = AnState.watchData[targetCode];
+  if (!targetData || !targetData.correlations) { sec.style.display = 'none'; return; }
 
-  const { pos, neu, neg } = result;
+  const { pos, neu, neg } = targetData.correlations;
+  if (!pos || !neu || !neg) { sec.style.display = 'none'; return; }
+
   const barColor = r => r >= 0 ? 'var(--up)' : 'var(--down)';
   const rFmt = r => (r >= 0 ? '+' : '') + r.toFixed(2);
 
@@ -537,19 +512,23 @@ function anRenderCorrSection(targetCode) {
     badge.textContent = badgeText;
     const score = document.createElement('span');
     score.className = 'corr-score';
-    score.style.color = barColor(item.r);
-    score.textContent = rFmt(item.r);
+    score.style.color = barColor(item.val);
+    score.textContent = rFmt(item.val);
     const nameEl = document.createElement('span');
     nameEl.className = 'corr-name corr-clickable';
-    nameEl.textContent = item.name;
-    nameEl.title = `${item.name} 조회`;
+    nameEl.textContent = item.name || item.code;
+    nameEl.title = `${item.name || item.code} 조회`;
     const codeEl = document.createElement('span');
     codeEl.className = 'corr-code corr-clickable';
-    codeEl.textContent = item.code;
-    codeEl.title = `${item.name} 조회`;
+    codeEl.textContent = ''; // Hide or adjust if needed.
+    codeEl.title = `${item.name || item.code} 조회`;
     const onClick = () => {
-      _anEl('stockInput').value = item.code;
-      anDoSearch(item.code);
+      const inputEl = _anEl('stockInput') || document.getElementById('stockInput');
+      if (inputEl) {
+        inputEl.value = item.code;
+        if (typeof anDoSearch !== 'undefined') anDoSearch(item.code);
+        else if (typeof doSearch !== 'undefined') doSearch(item.code);
+      }
     };
     nameEl.addEventListener('click', onClick);
     codeEl.addEventListener('click', onClick);

@@ -329,105 +329,18 @@ async function doSearch(input, dbOnly = false) {
  * - 날짜 기준 정렬 후 공통 날짜만 사용
  * - 최소 5개 공통 데이터 포인트 필요
  */
-function _pearson(candlesA, candlesB) {
-  // 날짜 → 일간 수익률 맵 생성 (가격 대신 수익률로 상관 계산 → 레벨 효과 제거)
-  const rateMap = (candles) => {
-    const m = new Map();
-    for (let i = 1; i < candles.length; i++) {
-      const prev = candles[i - 1].close;
-      const cur = candles[i].close;
-      if (prev && cur) m.set(candles[i].date, (cur - prev) / prev);
-    }
-    return m;
-  };
-  const mA = rateMap(candlesA);
-  const mB = rateMap(candlesB);
-
-  // 공통 날짜만 추출
-  const dates = [...mA.keys()].filter(d => mB.has(d));
-  if (dates.length < 5) return null;
-
-  const xs = dates.map(d => mA.get(d));
-  const ys = dates.map(d => mB.get(d));
-  const n = xs.length;
-
-  const meanX = xs.reduce((s, v) => s + v, 0) / n;
-  const meanY = ys.reduce((s, v) => s + v, 0) / n;
-
-  let num = 0, denX = 0, denY = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = xs[i] - meanX;
-    const dy = ys[i] - meanY;
-    num += dx * dy;
-    denX += dx * dx;
-    denY += dy * dy;
-  }
-  const den = Math.sqrt(denX * denY);
-  if (den === 0) return null;
-  return num / den;
-}
-
-/**
- * 현재 탭의 모든 종목과 target code 간 상관계수를 계산해
- * 최고 양/음 상관 종목을 반환
- * returns { pos: {code, name, r, n}, neg: {code, name, r, n} } | null
- */
-function _calcCorrelations(targetCode) {
-  const targetData = AppState.watchData[targetCode];
-  if (!targetData?.allCandles?.length) return null;
-
-  const tab = Storage.getActiveTab();
-  if (!tab) return null;
-
-  const others = tab.stocks.filter(s => s.code !== targetCode);
-  if (!others.length) return null;
-
-  const results = [];
-  for (const s of others) {
-    const d = AppState.watchData[s.code];
-    if (!d?.allCandles?.length) continue;
-    const r = _pearson(targetData.allCandles, d.allCandles);
-    if (r === null) continue;
-    results.push({
-      code: s.code,
-      name: d.name || s.name || s.code,
-      r,
-    });
-  }
-
-  if (!results.length) return null;
-
-  results.sort((a, b) => b.r - a.r);
-
-  // 0에 가장 가까운 종목 (양·음 최대와 다른 종목 중 |r| 최소)
-  const posCode = results[0].code;
-  const negCode = results[results.length - 1].code;
-  const neuCandidates = results.filter(x => x.code !== posCode && x.code !== negCode);
-  // 후보가 없으면 pos/neg 제외 없이 전체에서 선택
-  const neuPool = neuCandidates.length ? neuCandidates : results;
-  const neu = neuPool.reduce((best, x) =>
-    Math.abs(x.r) < Math.abs(best.r) ? x : best
-  );
-
-  return {
-    pos: results[0],
-    neu,
-    neg: results[results.length - 1],
-  };
-}
-
-/** 상관관계 섹션 렌더링 — 가로 배치 */
-function renderCorrSection(targetCode) {
+function renderCorrSection(correlations) {
   const sec = document.getElementById('corrSection');
   if (!sec) return;
 
-  const result = _calcCorrelations(targetCode);
-  if (!result) {
+  if (!correlations) {
     sec.style.display = 'none';
     return;
   }
 
-  const { pos, neu, neg } = result;
+  const { pos, neu, neg } = correlations;
+  if (!pos || !neu || !neg) { sec.style.display = 'none'; return; }
+
   const barColor = r => r >= 0 ? 'var(--up)' : 'var(--down)';
   const rFmt = r => (r >= 0 ? '+' : '') + r.toFixed(2);
 
@@ -441,22 +354,25 @@ function renderCorrSection(targetCode) {
 
     const score = document.createElement('span');
     score.className = 'corr-score';
-    score.style.color = barColor(item.r);
-    score.textContent = rFmt(item.r);
+    score.style.color = barColor(item.val);
+    score.textContent = rFmt(item.val);
 
     const nameEl = document.createElement('span');
     nameEl.className = 'corr-name corr-clickable';
-    nameEl.textContent = item.name;
-    nameEl.title = `${item.name} 조회`;
+    nameEl.textContent = item.name || item.code;
+    nameEl.title = `${item.name || item.code} 조회`;
 
     const codeEl = document.createElement('span');
     codeEl.className = 'corr-code corr-clickable';
-    codeEl.textContent = item.code;
-    codeEl.title = `${item.name} 조회`;
+    codeEl.textContent = '';
+    codeEl.title = `${item.name || item.code} 조회`;
 
     const onClick = () => {
-      document.getElementById('stockInput').value = item.code;
-      doSearch(item.code);
+      const inputEl = document.getElementById('stockInput');
+      if (inputEl) {
+        inputEl.value = item.code;
+        if (typeof doSearch !== 'undefined') doSearch(item.code);
+      }
     };
     nameEl.addEventListener('click', onClick);
     codeEl.addEventListener('click', onClick);
@@ -577,8 +493,10 @@ function renderPreview(data) {
   const previewCard = document.getElementById('previewCard');
   if (previewCard) previewCard.style.display = 'flex';
 
-  // 상관관계 섹션: 등록 종목이 2개 이상일 때만 표시
-  renderCorrSection(data.code);
+  // 상관관계 섹션: API 응답에 correlations 데이터가 있을 때만 표시
+  // watchData 키 불일치 문제를 피하기 위해 data.correlations를 직접 넘김
+  const corrData = data.correlations || AppState.watchData[data.code]?.correlations;
+  renderCorrSection(corrData);
 
   ['eomSection', 'rsiStochSection'].forEach(id => {
     const el = document.getElementById(id);
@@ -939,6 +857,18 @@ function buildListItem(stock, data) {
     <div class="col-eps        fund-val">${epsVal}</div>
     <div class="col-beta       fund-val ${betaCls}">${betaVal}</div>
     <div class="col-sector     fund-val" title="${sectorVal}">${sectorShort}</div>
+    <div class="col-corr-pos   fund-val ${data?.correlations?.pos?.val >= 0 ? 'fund-up' : 'fund-down'}" 
+         title="${data?.correlations?.pos ? `[${data.correlations.pos.code}] ${data.correlations.pos.name} (${data.correlations.pos.val.toFixed(4)})` : ''}">
+      ${data?.correlations?.pos ? (data.correlations.pos.val >= 0 ? '+' : '') + data.correlations.pos.val.toFixed(2) : '--'}
+    </div>
+    <div class="col-corr-neu   fund-val ${data?.correlations?.neu?.val >= 0 ? 'fund-up' : 'fund-down'}" 
+         title="${data?.correlations?.neu ? `[${data.correlations.neu.code}] ${data.correlations.neu.name} (${data.correlations.neu.val.toFixed(4)})` : ''}">
+      ${data?.correlations?.neu ? (data.correlations.neu.val >= 0 ? '+' : '') + data.correlations.neu.val.toFixed(2) : '--'}
+    </div>
+    <div class="col-corr-neg   fund-val ${data?.correlations?.neg?.val >= 0 ? 'fund-up' : 'fund-down'}" 
+         title="${data?.correlations?.neg ? `[${data.correlations.neg.code}] ${data.correlations.neg.name} (${data.correlations.neg.val.toFixed(4)})` : ''}">
+      ${data?.correlations?.neg ? (data.correlations.neg.val >= 0 ? '+' : '') + data.correlations.neg.val.toFixed(2) : '--'}
+    </div>
     <div class="col-action">
       <button class="btn-detail" data-code="${stock.code}" title="상세 차트">
         <i class="fas fa-chart-bar"></i>
@@ -1073,6 +1003,26 @@ function _refreshListItem(code) {
       }
     });
   }
+
+  // 상관관계 갱신
+  if (data.correlations) {
+    const { pos, neu, neg } = data.correlations;
+    const _setCorr = (sel, item) => {
+      const cEl = el.querySelector(sel);
+      if (!cEl || !item) return;
+      cEl.textContent = (item.val >= 0 ? '+' : '') + item.val.toFixed(2);
+      cEl.title = `[${item.code}] ${item.name || item.code} (${(item.val >= 0 ? '+' : '') + item.val.toFixed(4)})`;
+      cEl.className = `fund-val ${sel.replace('.', '')} ${item.val >= 0 ? 'fund-up' : 'fund-down'}`;
+    };
+    _setCorr('.col-corr-pos', pos);
+    _setCorr('.col-corr-neu', neu);
+    _setCorr('.col-corr-neg', neg);
+  } else {
+    ['.col-corr-pos', '.col-corr-neu', '.col-corr-neg'].forEach(sel => {
+      const cEl = el.querySelector(sel);
+      if (cEl) { cEl.textContent = '--'; cEl.title = ''; }
+    });
+  }
 }
 
 /* ══════════════════════════════════════════════
@@ -1114,6 +1064,9 @@ function sortList(list, col, dir) {
       case 'eps': va = AppState.fundamentals[a.code]?.eps ?? -Infinity; vb = AppState.fundamentals[b.code]?.eps ?? -Infinity; break;
       case 'beta': va = AppState.fundamentals[a.code]?.beta ?? -Infinity; vb = AppState.fundamentals[b.code]?.beta ?? -Infinity; break;
       case 'sector': va = (AppState.fundamentals[a.code]?.sector || '').toLowerCase(); vb = (AppState.fundamentals[b.code]?.sector || '').toLowerCase(); break;
+      case 'corrPos': va = da?.correlations?.pos?.val ?? -Infinity; vb = db?.correlations?.pos?.val ?? -Infinity; break;
+      case 'corrNeu': va = da?.correlations?.neu?.val ?? -Infinity; vb = db?.correlations?.neu?.val ?? -Infinity; break;
+      case 'corrNeg': va = da?.correlations?.neg?.val ?? -Infinity; vb = db?.correlations?.neg?.val ?? -Infinity; break;
       default: return 0;
     }
     if (va < vb) return dir === 'asc' ? -1 : 1;

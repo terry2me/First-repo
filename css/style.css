@@ -53,6 +53,11 @@
   --col-beta: 40px;
   --col-sector: 80px;
 
+  /* 상관관계 컬럼 */
+  --col-corr-pos: 46px;
+  --col-corr-neu: 46px;
+  --col-corr-neg: 46px;
+
   /* 앱 탭바 높이 */
 }
 
@@ -1586,6 +1591,18 @@ body {
   width: var(--col-sector);
 }
 
+.col-header.col-corr-pos {
+  width: var(--col-corr-pos);
+}
+
+.col-header.col-corr-neu {
+  width: var(--col-corr-neu);
+}
+
+.col-header.col-corr-neg {
+  width: var(--col-corr-neg);
+}
+
 .col-header.col-action {
   width: var(--col-action);
   font-size: 10px;
@@ -1763,6 +1780,32 @@ body {
   width: var(--col-sector);
   flex-shrink: 0;
   font-size: 11px;
+}
+
+.col-corr-pos,
+.col-corr-neu,
+.col-corr-neg {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-corr-pos {
+  width: var(--col-corr-pos);
+  color: var(--up);
+}
+
+.col-corr-neu {
+  width: var(--col-corr-neu);
+  color: var(--accent);
+}
+
+.col-corr-neg {
+  width: var(--col-corr-neg);
+  color: var(--down);
 }
 
 .stock-item {

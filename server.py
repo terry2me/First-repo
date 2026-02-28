@@ -188,6 +188,20 @@ def init_db():
         )
     """)
 
+    # ── 상관관계 테이블 ─────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS stock_correlations (
+            target_code TEXT PRIMARY KEY,
+            pos_code    TEXT,
+            pos_val     REAL,
+            neu_code    TEXT,
+            neu_val     REAL,
+            neg_code    TEXT,
+            neg_val     REAL,
+            updated_at  TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
     print("[DB] 초기화 완료:", DB_PATH)
@@ -356,13 +370,20 @@ def resolve_ticker(code: str, market: str) -> str:
         upper = code.upper()
         return _TICKER_ALIAS.get(upper, upper)
     code_clean = code.replace(".KS", "").replace(".KQ", "")
-    return f"{code_clean.zfill(6)}.KS"
+    # 숫자만 있는 경우 zfill(6), 영숫자 혼합(예: 0126Z0)은 그대로 사용
+    if code_clean.isdigit():
+        code_clean = code_clean.zfill(6)
+    return f"{code_clean}.KS"
 
 
 def resolve_market(code: str) -> str:
     """코드만으로 시장 추정"""
     c = code.upper().replace(".KS", "").replace(".KQ", "")
+    # 순수 숫자 → KS
     if c.isdigit():
+        return "KS"
+    # 6자리 영숫자 혼합 (예: 0126Z0, 4390Z1 등 한국 특수 코드) → KS
+    if len(c) == 6 and c[0].isdigit():
         return "KS"
     return "US"
 
@@ -755,7 +776,7 @@ def build_response(ticker: str, market: str, interval: str, candle_count: int) -
     if not is_us:
         code = code.zfill(6)
 
-    return {
+    res = {
         "code":           code,
         "market":         market,
         "ticker":         ticker,
@@ -793,6 +814,42 @@ def build_response(ticker: str, market: str, interval: str, candle_count: int) -
         "beta":           (fund or {}).get("beta"),
         "sector":         (fund or {}).get("sector"),
     }
+
+    # 상관관계 데이터 조회 후 병합
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM stock_correlations WHERE target_code=?", (code,))
+        row = c.fetchone()
+        
+        def get_meta_name(cc):
+            # 1. kr_stock_names에서 한글명 시도 (6자리 패딩)
+            cc_6 = cc.zfill(6) if cc.isdigit() else cc
+            c_exe = conn.execute("SELECT name_kr FROM kr_stock_names WHERE code=?", (cc_6,)).fetchone()
+            if c_exe: return c_exe[0]
+
+            # 2. stock_meta에서 영문명 또는 기타 명칭 시도
+            # (한국 종목은 .KS/.KQ 접미사 시도, 미국 종목은 그대로)
+            if cc.isdigit() or (len(cc) == 6 and any(c.isalpha() for c in cc)):
+                m_exe = conn.execute("SELECT name FROM stock_meta WHERE ticker=? OR ticker=?", (cc+".KS", cc+".KQ")).fetchone()
+                if m_exe: return m_exe[0]
+            
+            m_exe = conn.execute("SELECT name FROM stock_meta WHERE ticker=?", (cc,)).fetchone()
+            if m_exe: return m_exe[0]
+            
+            return cc
+            
+        if row:
+            res["correlations"] = {
+                "pos": {"code": row["pos_code"], "name": get_meta_name(row["pos_code"]), "val": row["pos_val"]},
+                "neu": {"code": row["neu_code"], "name": get_meta_name(row["neu_code"]), "val": row["neu_val"]},
+                "neg": {"code": row["neg_code"], "name": get_meta_name(row["neg_code"]), "val": row["neg_val"]}
+            }
+        conn.close()
+    except Exception:
+        pass
+
+    return res
 
 
 # ══════════════════════════════════════════════════════════
@@ -964,6 +1021,94 @@ def _update_kr_names_job():
         print(f"[update_kr_names] 업데이트 실패: {e}")
 
 
+def _calc_and_save_correlations():
+    """DB에 저장된 모든 종목(1d)의 수익률 상관계수를 일괄 계산해 저장한다."""
+    conn = get_db()
+    try:
+        import pandas as pd
+        df = pd.read_sql_query("SELECT ticker, date, close FROM stock_prices WHERE interval='1d'", conn)
+        if df.empty:
+            return
+        
+        # 피벗 테이블 생성 및 등락률 변환
+        pivot = df.pivot(index='date', columns='ticker', values='close')
+        returns = pivot.pct_change(fill_method=None).dropna(how='all')
+        if returns.empty:
+            return
+        
+        corr_matrix = returns.corr()
+        # 공통 데이터 포인트 개수 계산 (N x N 행렬)
+        valid_mask = returns.notna().astype(int)
+        counts_matrix = valid_mask.T @ valid_mask
+        
+        records = []
+        now_iso = datetime.now().isoformat()
+        tickers = corr_matrix.columns
+        for t in tickers:
+            # 해당 종목 t와 다른 종목들 간의 상관계수 및 공통 데이터 수
+            # 최소 20일 이상의 공통 데이터가 있는 종목만 후보로 함
+            c_serie = corr_matrix[t]
+            n_serie = counts_matrix[t]
+            
+            # 자기 자신 제외 및 데이터 부족 종목 제외 (최소 20일)
+            mask = (c_serie.index != t) & (n_serie >= 20)
+            valid_candidates = c_serie[mask].dropna()
+            
+            if valid_candidates.empty:
+                continue
+            
+            s_sorted = valid_candidates.sort_values(ascending=False)
+            pos_code = s_sorted.index[0]
+            pos_val = float(s_sorted.iloc[0])
+            
+            neg_code = s_sorted.index[-1]
+            neg_val = float(s_sorted.iloc[-1])
+            
+            # Neutral(중) 선정 로직 개선:
+            # 1. 절대값이 0.1 미만인 종목들 중 공통 데이터(n_serie)가 가장 많은 것을 우선 선택
+            # 2. 그런 종목이 없으면 단순히 절대값 최소인 것 선택
+            neu_pool = valid_candidates.drop([pos_code, neg_code], errors='ignore')
+            if not neu_pool.empty:
+                low_corr = neu_pool[neu_pool.abs() < 0.1]
+                if not low_corr.empty:
+                    # 데이터 포인트가 많은 순으로 정렬하여 첫 번째 선택
+                    neu_idx = n_serie[low_corr.index].idxmax()
+                    neu_code = neu_idx
+                    neu_val = float(neu_pool.loc[neu_idx])
+                else:
+                    neu_idx = neu_pool.abs().idxmin()
+                    neu_code = neu_idx
+                    neu_val = float(neu_pool.loc[neu_idx])
+            else:
+                neu_code = pos_code
+                neu_val = pos_val
+            
+            # '.KS', '.KQ' 제거하여 클라이언트 코드와 일치
+            def clean_code(c):
+                return c.replace('.KS', '').replace('.KQ', '').zfill(6) if '.KS' in c or '.KQ' in c else c
+                
+            records.append((
+                clean_code(t), 
+                clean_code(pos_code), pos_val, 
+                clean_code(neu_code), neu_val, 
+                clean_code(neg_code), neg_val, 
+                now_iso
+            ))
+            
+        c = conn.cursor()
+        c.execute("DELETE FROM stock_correlations")
+        c.executemany("""
+            INSERT INTO stock_correlations 
+            (target_code, pos_code, pos_val, neu_code, neu_val, neg_code, neg_val, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, records)
+        conn.commit()
+        print(f"[scheduler] 상관관계 계산 완료: {len(records)}종목")
+    except Exception as e:
+        print(f"[scheduler] 상관관계 계산 실패: {e}")
+    finally:
+        conn.close()
+
 async def _scheduled_daily_refresh():
     """APScheduler 가 매일 04:00 KST 에 호출하는 자동 업데이트 함수"""
     now_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M KST")
@@ -987,6 +1132,7 @@ async def _scheduled_daily_refresh():
     await loop.run_in_executor(None, _update_kr_names_job)
     await loop.run_in_executor(None, _do_refresh, stocks, "1d",  200)
     await loop.run_in_executor(None, _do_refresh, stocks, "1wk", 100)
+    await loop.run_in_executor(None, _calc_and_save_correlations)
 
     fin_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M KST")
     print(f"[scheduler] 자동 업데이트 완료 — {fin_kst} / {len(stocks)}종목")
@@ -1247,4 +1393,4 @@ init_db()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
