@@ -541,9 +541,7 @@ function renderPreview(data) {
     setBBBand(lowerPctEl,  lowerPriceEl,  bb.lower);
   }
 
-  document.getElementById('leftPanelTitle').innerHTML =
-    `<i class="fas fa-chart-area"></i> ${name} ` +
-    `<small style="font-size:11px;color:var(--text-muted)">${data.ticker}</small>`;
+  // leftPanelTitle 제거됨 — 종목명은 previewName에만 표시
 
   const regBtn = document.getElementById('btnRegister');
   regBtn.disabled = false;
@@ -610,7 +608,7 @@ function hidePreview() {
   const regBtn = document.getElementById('btnRegister');
   regBtn.style.display = 'none';
   regBtn.disabled = true;
-  document.getElementById('leftPanelTitle').innerHTML = '<i class="fas fa-search"></i> 종목 검색';
+  // leftPanelTitle 제거됨
   ['eomSection', 'rsiStochSection'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';

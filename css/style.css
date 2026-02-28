@@ -219,7 +219,8 @@ body { font-family:var(--font); background:var(--bg-base);
 }
 
 /* ══ 검색창 ══ */
-.search-box { display:flex; gap:8px; padding:12px 16px 6px; flex-shrink:0; }
+.search-box { display:flex; gap:6px; padding:6px 8px; flex-shrink:0; align-items:center; border-bottom:1px solid var(--border); }
+.search-box-sep { width:1px; height:20px; background:var(--border); flex-shrink:0; margin:0 2px; }
 .stock-input {
   flex:1; padding:8px 12px; background:var(--bg-input);
   border:1px solid var(--border); border-radius:var(--radius-sm);
@@ -235,7 +236,7 @@ body { font-family:var(--font); background:var(--bg-base);
   transition:background .15s;
 }
 .btn-search:hover { background:var(--accent-hover); }
-.search-hint { padding:0 16px 10px; font-size:11px; color:var(--text-muted); flex-shrink:0; line-height:1.8; }
+/* .search-hint 제거됨 */
 
 /* ══ 에러 / 로딩 ══ */
 .search-error {
@@ -265,8 +266,8 @@ body { font-family:var(--font); background:var(--bg-base);
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin: 8px 10px 10px;
-  padding: 10px 12px;
+  margin: 4px 6px 6px;
+  padding: 6px 8px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -276,16 +277,16 @@ body { font-family:var(--font); background:var(--bg-base);
 /* ── 상단 가로 행: 종목 정보(좌) + BB 바(우) ── */
 .preview-top-row {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: stretch;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 /* 좌: 종목명·가격·등락 */
 .preview-info-col {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 2px;
   flex: 1;
   min-width: 0;
 }
@@ -519,7 +520,7 @@ body { font-family:var(--font); background:var(--bg-base);
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 /* ── 미니 차트 ── */

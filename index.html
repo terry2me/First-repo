@@ -18,24 +18,7 @@
       <!-- ===== LEFT PANEL ===== -->
       <section class="panel panel-left">
 
-        <!-- ── 컨트롤바: 종목검색 타이틀 + 일봉/주봉 ── -->
-        <div class="ctrl-bar">
-          <h2 class="ctrl-title" id="leftPanelTitle">
-            <i class="fas fa-search"></i> 종목 검색
-          </h2>
-          <div class="ctrl-bar-center">
-            <div class="interval-toggle" id="intervalToggle">
-              <button class="interval-btn active" data-interval="1d">
-                <i class="fas fa-chart-bar"></i> 일봉
-              </button>
-              <button class="interval-btn" data-interval="1wk">
-                <i class="fas fa-chart-area"></i> 주봉
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── 검색 ── -->
+        <!-- ── 검색 + 일봉/주봉 한 줄 ── -->
         <div class="search-box">
           <input type="text" id="stockInput" class="stock-input"
                  placeholder="005930 또는 AAPL, TSLA..." maxlength="10" />
@@ -45,10 +28,16 @@
           <button class="btn-register" id="btnRegister" style="display:none;" disabled>
             <i class="fas fa-plus-circle"></i> 등록
           </button>
+          <div class="search-box-sep"></div>
+          <div class="interval-toggle" id="intervalToggle">
+            <button class="interval-btn active" data-interval="1d">
+              <i class="fas fa-chart-bar"></i> 일봉
+            </button>
+            <button class="interval-btn" data-interval="1wk">
+              <i class="fas fa-chart-area"></i> 주봉
+            </button>
+          </div>
         </div>
-        <p class="search-hint">
-          한국: 6자리 숫자 (005930) &nbsp;|&nbsp; 미국: 영문 티커 (AAPL, TSLA, NVDA)
-        </p>
 
         <!-- ── 미리보기 카드 ── -->
         <div class="preview-card" id="previewCard" style="display:none;">
