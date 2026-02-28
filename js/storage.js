@@ -6,13 +6,13 @@
  * 읽기: GET  /api/config  → { tabs, settings }
  * 쓰기: POST /api/config  → { tabs?, settings? }
  *
- * 설정 키: active_tab / interval
+ * 설정 키: active_tab / preview_interval / list_interval
  */
 const Storage = (() => {
 
   /* ─── 메모리 캐시 ─── */
-  let _tabs      = [];    // [{ uid, name, sort_order, stocks[] }]
-  let _settings  = {};    // { key: value }  (string → string)
+  let _tabs = [];    // [{ uid, name, sort_order, stocks[] }]
+  let _settings = {};    // { key: value }  (string → string)
   let _activeTab = null;
 
   /* ─── REST 헬퍼 ─── */
@@ -24,9 +24,9 @@ const Storage = (() => {
 
   async function _postConfig(body) {
     const res = await fetch('/api/config', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`POST /api/config → ${res.status}`);
     return res.json();
@@ -63,10 +63,10 @@ const Storage = (() => {
     }
 
     _tabs = (cfg.tabs || []).map(t => ({
-      uid:        t.uid,
-      name:       t.name || '기본',
+      uid: t.uid,
+      name: t.name || '기본',
       sort_order: t.sort_order ?? 0,
-      stocks:     Array.isArray(t.stocks) ? t.stocks : [],
+      stocks: Array.isArray(t.stocks) ? t.stocks : [],
     })).sort((a, b) => a.sort_order - b.sort_order);
 
     if (!_tabs.length) {
@@ -79,7 +79,7 @@ const Storage = (() => {
     _settings = cfg.settings || {};
 
     const savedActive = _settings['active_tab'];
-    const validTab    = _tabs.find(t => t.uid === savedActive);
+    const validTab = _tabs.find(t => t.uid === savedActive);
     _activeTab = validTab ? savedActive : _tabs[0]?.uid;
 
     /* 구버전 LocalStorage → 서버 1회 마이그레이션 */
@@ -97,10 +97,10 @@ const Storage = (() => {
       if (!Array.isArray(oldTabs) || !oldTabs.length) return;
       if (_tabs.length === 1 && _tabs[0].stocks.length === 0) {
         _tabs = oldTabs.map((ot, i) => ({
-          uid:        crypto.randomUUID(),
-          name:       ot.name || (i === 0 ? '기본' : `그룹${i + 1}`),
+          uid: crypto.randomUUID(),
+          name: ot.name || (i === 0 ? '기본' : `그룹${i + 1}`),
           sort_order: i,
-          stocks:     ot.stocks || [],
+          stocks: ot.stocks || [],
         }));
         await _saveTabs();
         console.info('[Storage] LocalStorage 마이그레이션 완료');
@@ -108,16 +108,16 @@ const Storage = (() => {
     } catch (e) {
       console.warn('[Storage] 마이그레이션 실패:', e.message);
     } finally {
-      ['bb_tabs','bb_active_tab','bb_candle_count','bb_interval','bb_watchlist','bb_period',
-       'bb_fundamentals_v1','bb_fundamentals_ts_v1']
-        .forEach(k => { try { localStorage.removeItem(k); } catch {} });
+      ['bb_tabs', 'bb_active_tab', 'bb_candle_count', 'bb_interval', 'bb_watchlist', 'bb_period',
+        'bb_fundamentals_v1', 'bb_fundamentals_ts_v1']
+        .forEach(k => { try { localStorage.removeItem(k); } catch { } });
     }
   }
 
   /* ─── 탭 API ─── */
-  function getTabs()        { return _tabs; }
+  function getTabs() { return _tabs; }
   function getActiveTabId() { return _activeTab || _tabs[0]?.uid; }
-  function getActiveTab()   { return _tabs.find(t => t.uid === getActiveTabId()) || _tabs[0]; }
+  function getActiveTab() { return _tabs.find(t => t.uid === getActiveTabId()) || _tabs[0]; }
 
   async function setActiveTabId(uid) {
     _activeTab = uid;
@@ -157,7 +157,7 @@ const Storage = (() => {
 
   /* ─── 종목 API ─── */
   function getWatchlist(tabUid) {
-    const id  = tabUid || getActiveTabId();
+    const id = tabUid || getActiveTabId();
     const tab = _tabs.find(t => t.uid === id);
     return tab ? [...(tab.stocks || [])] : [];
   }
@@ -181,9 +181,9 @@ const Storage = (() => {
 
   async function copyStocks(codes, toTabUid) {
     const fromTab = _tabs.find(t => t.uid === getActiveTabId());
-    const toTab   = _tabs.find(t => t.uid === toTabUid);
+    const toTab = _tabs.find(t => t.uid === toTabUid);
     if (!fromTab || !toTab || fromTab.uid === toTab.uid) return 0;
-    const set     = new Set(Array.isArray(codes) ? codes : [codes]);
+    const set = new Set(Array.isArray(codes) ? codes : [codes]);
     const already = new Set((toTab.stocks || []).map(s => s.code));
     let count = 0;
     (fromTab.stocks || []).forEach(s => {
@@ -200,9 +200,9 @@ const Storage = (() => {
 
   async function moveStocks(codes, toTabUid) {
     const fromTab = _tabs.find(t => t.uid === getActiveTabId());
-    const toTab   = _tabs.find(t => t.uid === toTabUid);
+    const toTab = _tabs.find(t => t.uid === toTabUid);
     if (!fromTab || !toTab || fromTab.uid === toTab.uid) return 0;
-    const set     = new Set(Array.isArray(codes) ? codes : [codes]);
+    const set = new Set(Array.isArray(codes) ? codes : [codes]);
     const already = new Set((toTab.stocks || []).map(s => s.code));
     let count = 0;
     (fromTab.stocks || []).forEach(s => {
@@ -244,11 +244,20 @@ const Storage = (() => {
   }
 
   /* ─── 설정 API ─── */
-  function getInterval() {
-    return _settings['interval'] === '1wk' ? '1wk' : '1d';
+  function getPreviewInterval() {
+    const val = _settings['preview_interval'] || _settings['interval'];
+    return val === '1wk' ? '1wk' : '1d';
   }
-  async function setInterval(v) {
-    await _saveSetting('interval', v === '1wk' ? '1wk' : '1d');
+  async function setPreviewInterval(v) {
+    await _saveSetting('preview_interval', v === '1wk' ? '1wk' : '1d');
+  }
+
+  function getListInterval() {
+    const val = _settings['list_interval'] || _settings['interval'];
+    return val === '1wk' ? '1wk' : '1d';
+  }
+  async function setListInterval(v) {
+    await _saveSetting('list_interval', v === '1wk' ? '1wk' : '1d');
   }
 
   function getCandleCount() {
@@ -261,17 +270,17 @@ const Storage = (() => {
 
   /* ─── 펀더멘털 (하위 호환 shim — 기능 없음, app.js가 watchData에서 직접 읽음) ─── */
   function getFundamentals() { return {}; }
-  async function saveFundamental() {}
+  async function saveFundamental() { }
 
   /* ─── 호환 shim ─── */
-  function saveTabs() {}
+  function saveTabs() { }
 
   return {
     init,
     getTabs, getActiveTabId, setActiveTabId, getActiveTab,
     addTab, renameTab, removeTab, reorderTabs, saveTabs,
     getWatchlist, addStock, removeStocks, reorderStocks, copyStocks, moveStocks, updateStockName,
-    getCandleCount, setCandleCount, getInterval, setInterval,
+    getCandleCount, setCandleCount, getPreviewInterval, setPreviewInterval, getListInterval, setListInterval,
     getFundamentals, saveFundamental,
   };
 })();

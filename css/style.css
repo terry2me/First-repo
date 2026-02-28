@@ -83,7 +83,8 @@ body {
   overflow: hidden;
 }
 
-.interval-btn {
+.interval-btn,
+.list-interval-btn {
   padding: 5px 13px;
   background: var(--bg-input);
   border: none;
@@ -98,19 +99,22 @@ body {
   gap: 5px;
 }
 
-.interval-btn:hover {
+.interval-btn:hover,
+.list-interval-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-.interval-btn.active {
+.interval-btn.active,
+.list-interval-btn.active {
   background: var(--accent);
   color: #fff;
   font-weight: 600;
   box-shadow: inset 0 0 8px rgba(0, 0, 0, .2);
 }
 
-.interval-btn:disabled {
+.interval-btn:disabled,
+.list-interval-btn:disabled {
   opacity: .4;
   cursor: not-allowed;
   pointer-events: none;
@@ -345,7 +349,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0;
-  padding: 5px 10px 5px 12px;
+  padding: 8px 16px 5px 12px;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-bottom: none;
@@ -358,6 +362,7 @@ body {
   user-select: none;
   transition: all .15s;
   min-width: 60px;
+  position: relative;
 }
 
 .tab-item:hover {
@@ -385,16 +390,18 @@ body {
 
 .tab-label {
   flex: 1;
-  padding-right: 6px;
 }
 
 .tab-close {
-  width: 16px;
-  height: 16px;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
   border: none;
   background: transparent;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 9px;
   cursor: pointer;
   border-radius: 3px;
   display: flex;

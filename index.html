@@ -1,14 +1,17 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>📈 볼린저 밴드 주식 모니터</title>
-  <link rel="stylesheet" href="css/style.css?v=20260228" />
+  <link rel="stylesheet" href="css/style.css?v=20260228_1" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet" />
 </head>
+
 <body>
 
   <!-- ===== 관심종목 (단일 화면) ===== -->
@@ -20,8 +23,7 @@
 
         <!-- ── 검색 + 일봉/주봉 한 줄 ── -->
         <div class="search-box">
-          <input type="text" id="stockInput" class="stock-input"
-                 placeholder="005930 또는 AAPL, TSLA..." maxlength="10" />
+          <input type="text" id="stockInput" class="stock-input" placeholder="005930 또는 AAPL, TSLA..." maxlength="10" />
           <button class="btn-search" id="btnSearch">
             <i class="fas fa-search"></i> 조회
           </button>
@@ -181,77 +183,91 @@
         <!-- 헤더+리스트 공통 가로스크롤 래퍼 -->
         <div class="list-scroll-wrap">
 
-        <!-- 컬럼 헤더 -->
-        <div class="list-header" id="listHeader">
-          <div class="col-check"><input type="checkbox" id="checkAll" /></div>
-          <div class="col-header col-alert" data-col-id="alert">
-            <span class="sort-col" data-col="alert">경고<span class="sort-icon" id="sort-alert"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="alert"></div>
+          <!-- 컬럼 헤더 -->
+          <div class="list-header" id="listHeader">
+            <div class="col-check"><input type="checkbox" id="checkAll" /></div>
+            <div class="col-header col-alert" data-col-id="alert">
+              <span class="sort-col" data-col="alert">경고<span class="sort-icon" id="sort-alert"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="alert"></div>
+            </div>
+            <div class="col-header col-name" data-col-id="name">
+              <span class="sort-col" data-col="name">종목명<span class="sort-icon" id="sort-name"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="name"></div>
+            </div>
+            <div class="col-header col-price" data-col-id="price">
+              <span class="sort-col" data-col="price">현재가<span class="sort-icon" id="sort-price"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="price"></div>
+            </div>
+            <div class="col-header col-today-chg" data-col-id="todayChg">
+              <span class="sort-col" data-col="todayChg">금일등락<span class="sort-icon" id="sort-todayChg"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="todayChg"></div>
+            </div>
+            <div class="col-header col-change" data-col-id="change">
+              <span class="sort-col" data-col="change">기간등락<span class="sort-icon" id="sort-change"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="change"></div>
+            </div>
+            <div class="col-header col-bb" data-col-id="bbRatio">
+              <span class="sort-col" data-col="bbRatio">BB위치<span class="sort-icon" id="sort-bbRatio"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="bbRatio"></div>
+            </div>
+            <div class="col-header col-trail-pe" data-col-id="trailPE">
+              <span class="sort-col" data-col="trailPE">PER<span class="sort-icon" id="sort-trailPE"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="trailPE"></div>
+            </div>
+            <div class="col-header col-forward-pe" data-col-id="forwardPE">
+              <span class="sort-col" data-col="forwardPE">ForwardPE<span class="sort-icon" id="sort-forwardPE"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="forwardPE"></div>
+            </div>
+            <div class="col-header col-pbr" data-col-id="pbr">
+              <span class="sort-col" data-col="pbr">PBR<span class="sort-icon" id="sort-pbr"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="pbr"></div>
+            </div>
+            <div class="col-header col-ev-ebitda" data-col-id="evEbitda">
+              <span class="sort-col" data-col="evEbitda">EV/EBITDA<span class="sort-icon" id="sort-evEbitda"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="evEbitda"></div>
+            </div>
+            <div class="col-header col-div-yield" data-col-id="divYield">
+              <span class="sort-col" data-col="divYield">배당<span class="sort-icon" id="sort-divYield"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="divYield"></div>
+            </div>
+            <div class="col-header col-eps" data-col-id="eps">
+              <span class="sort-col" data-col="eps">EPS<span class="sort-icon" id="sort-eps"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="eps"></div>
+            </div>
+            <div class="col-header col-beta" data-col-id="beta">
+              <span class="sort-col" data-col="beta">Beta<span class="sort-icon" id="sort-beta"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="beta"></div>
+            </div>
+            <div class="col-header col-sector" data-col-id="sector">
+              <span class="sort-col" data-col="sector">섹터<span class="sort-icon" id="sort-sector"><i
+                    class="fas fa-sort"></i></span></span>
+              <div class="col-resizer" data-col="sector"></div>
+            </div>
+            <div class="col-header col-action">상세</div>
           </div>
-          <div class="col-header col-name" data-col-id="name">
-            <span class="sort-col" data-col="name">종목명<span class="sort-icon" id="sort-name"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="name"></div>
-          </div>
-          <div class="col-header col-price" data-col-id="price">
-            <span class="sort-col" data-col="price">현재가<span class="sort-icon" id="sort-price"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="price"></div>
-          </div>
-          <div class="col-header col-today-chg" data-col-id="todayChg">
-            <span class="sort-col" data-col="todayChg">금일등락<span class="sort-icon" id="sort-todayChg"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="todayChg"></div>
-          </div>
-          <div class="col-header col-change" data-col-id="change">
-            <span class="sort-col" data-col="change">기간등락<span class="sort-icon" id="sort-change"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="change"></div>
-          </div>
-          <div class="col-header col-bb" data-col-id="bbRatio">
-            <span class="sort-col" data-col="bbRatio">BB위치<span class="sort-icon" id="sort-bbRatio"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="bbRatio"></div>
-          </div>
-          <div class="col-header col-trail-pe" data-col-id="trailPE">
-            <span class="sort-col" data-col="trailPE">PER<span class="sort-icon" id="sort-trailPE"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="trailPE"></div>
-          </div>
-          <div class="col-header col-forward-pe" data-col-id="forwardPE">
-            <span class="sort-col" data-col="forwardPE">ForwardPE<span class="sort-icon" id="sort-forwardPE"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="forwardPE"></div>
-          </div>
-          <div class="col-header col-pbr" data-col-id="pbr">
-            <span class="sort-col" data-col="pbr">PBR<span class="sort-icon" id="sort-pbr"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="pbr"></div>
-          </div>
-          <div class="col-header col-ev-ebitda" data-col-id="evEbitda">
-            <span class="sort-col" data-col="evEbitda">EV/EBITDA<span class="sort-icon" id="sort-evEbitda"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="evEbitda"></div>
-          </div>
-          <div class="col-header col-div-yield" data-col-id="divYield">
-            <span class="sort-col" data-col="divYield">배당<span class="sort-icon" id="sort-divYield"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="divYield"></div>
-          </div>
-          <div class="col-header col-eps" data-col-id="eps">
-            <span class="sort-col" data-col="eps">EPS<span class="sort-icon" id="sort-eps"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="eps"></div>
-          </div>
-          <div class="col-header col-beta" data-col-id="beta">
-            <span class="sort-col" data-col="beta">Beta<span class="sort-icon" id="sort-beta"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="beta"></div>
-          </div>
-          <div class="col-header col-sector" data-col-id="sector">
-            <span class="sort-col" data-col="sector">섹터<span class="sort-icon" id="sort-sector"><i class="fas fa-sort"></i></span></span>
-            <div class="col-resizer" data-col="sector"></div>
-          </div>
-          <div class="col-header col-action">상세</div>
-        </div>
 
-        <!-- 종목 리스트 -->
-        <div class="stock-list" id="stockList"></div>
+          <!-- 종목 리스트 -->
+          <div class="stock-list" id="stockList"></div>
 
-        <!-- 빈 상태 메시지 (stockList 형제 — DOM 오염 방지) -->
-        <div class="empty-state" id="emptyState" style="display:none;">
-          <i class="fas fa-chart-line"></i>
-          <p>등록된 종목이 없습니다.</p>
-          <p class="empty-hint">좌측에서 종목코드를 입력하고 등록하세요.</p>
-        </div>
+          <!-- 빈 상태 메시지 (stockList 형제 — DOM 오염 방지) -->
+          <div class="empty-state" id="emptyState" style="display:none;">
+            <i class="fas fa-chart-line"></i>
+            <p>등록된 종목이 없습니다.</p>
+            <p class="empty-hint">좌측에서 종목코드를 입력하고 등록하세요.</p>
+          </div>
 
         </div><!-- /.list-scroll-wrap -->
 
@@ -291,12 +307,13 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=20260228"></script>
-  <script src="js/storage.js?v=20260228"></script>
-  <script src="js/api.js?v=20260228"></script>
-  <script src="js/indicators.js?v=20260228"></script>
-  <script src="js/charts.js?v=20260228"></script>
-  <script src="js/app.js?v=20260228"></script>
+  <script src="js/config.js?v=20260228_1"></script>
+  <script src="js/storage.js?v=20260228_1"></script>
+  <script src="js/api.js?v=20260228_1"></script>
+  <script src="js/indicators.js?v=20260228_1"></script>
+  <script src="js/charts.js?v=20260228_1"></script>
+  <script src="js/app.js?v=20260228_1"></script>
 
 </body>
+
 </html>

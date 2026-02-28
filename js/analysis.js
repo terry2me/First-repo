@@ -13,15 +13,15 @@
    독립 상태
 ══════════════════════════════════════════════ */
 const AnState = {
-  candleCount:     52,
+  candleCount: 52,
   previewInterval: '1d',
-  listInterval:    '1d',
-  previewData:  null,
-  previewCode:  null,
-  watchData:    {},
+  listInterval: '1d',
+  previewData: null,
+  previewCode: null,
+  watchData: {},
   fundamentals: {},
-  sortCol:      null,
-  sortDir:      'asc',
+  sortCol: null,
+  sortDir: 'asc',
   checkedCodes: new Set(),
 };
 
@@ -31,15 +31,15 @@ const AnState = {
 ══════════════════════════════════════════════ */
 const AnStorage = (() => {
   // ── 내부 상태 ──────────────────────────────
-  let _tabs     = [];   // [{ uid, name, stocks:[] }]
-  let _settings = {};   // { interval, activeTabId, ... }
+  let _tabs = [];   // [{ uid, name, stocks:[] }]
+  let _settings = {};   // { preview_interval, list_interval, activeTabId, ... }
   const SETTINGS_KEY = 'an_settings';
-  const TABS_KEY     = 'an_tabs';
+  const TABS_KEY = 'an_tabs';
 
   // ── UID 생성 ────────────────────────────────
   function _uid() {
     return Math.random().toString(36).slice(2, 10) +
-           Math.random().toString(36).slice(2, 10);
+      Math.random().toString(36).slice(2, 10);
   }
 
   // ── REST 헬퍼 ────────────────────────────────
@@ -75,7 +75,7 @@ const AnStorage = (() => {
   }
   function _deserializeTab(row) {
     let stocks = [];
-    try { stocks = JSON.parse(row.stocks || '[]'); } catch (_) {}
+    try { stocks = JSON.parse(row.stocks || '[]'); } catch (_) { }
     return { uid: row.id, name: row.name || '그룹1', stocks, _rowId: row.id };
   }
 
@@ -89,8 +89,8 @@ const AnStorage = (() => {
 
     // 기본 탭 없으면 생성
     if (!_tabs.length) {
-      const uid  = _uid();
-      const row  = await _post(TABS_KEY, { id: uid, name: 'S&P 500', stocks: '[]' });
+      const uid = _uid();
+      const row = await _post(TABS_KEY, { id: uid, name: 'S&P 500', stocks: '[]' });
       _tabs = [{ uid, name: 'S&P 500', stocks: [], _rowId: row.id }];
     }
 
@@ -101,7 +101,7 @@ const AnStorage = (() => {
         _settings[r.key] = r.value;
         _settingsRowIds[r.key] = r.id;  // PATCH용 rowId 저장
       });
-    } catch (_) {}
+    } catch (_) { }
 
     // activeTab 검증
     if (!_tabs.find(t => t.uid === _settings.activeTabId)) {
@@ -112,10 +112,10 @@ const AnStorage = (() => {
   }
 
   // ── 탭 조회 ────────────────────────────────
-  function getTabs()        { return _tabs; }
+  function getTabs() { return _tabs; }
   function getActiveTabId() { return _settings.activeTabId || _tabs[0]?.uid; }
-  function getActiveTab()   { return _tabs.find(t => t.uid === getActiveTabId()) || null; }
-  function getWatchlist()   { return getActiveTab()?.stocks || []; }
+  function getActiveTab() { return _tabs.find(t => t.uid === getActiveTabId()) || null; }
+  function getWatchlist() { return getActiveTab()?.stocks || []; }
 
   async function setActiveTabId(uid) {
     _settings.activeTabId = uid;
@@ -134,7 +134,7 @@ const AnStorage = (() => {
   async function removeTab(uid) {
     const idx = _tabs.findIndex(t => t.uid === uid);
     if (idx === -1) return;
-    try { await _del(TABS_KEY, _tabs[idx]._rowId || uid); } catch (_) {}
+    try { await _del(TABS_KEY, _tabs[idx]._rowId || uid); } catch (_) { }
     _tabs.splice(idx, 1);
     if (getActiveTabId() === uid) {
       await setActiveTabId(_tabs[0]?.uid || '');
@@ -188,7 +188,7 @@ const AnStorage = (() => {
   // ── 종목 이동 ────────────────────────────────
   async function moveStocks(codes, toTabUid) {
     const from = getActiveTab();
-    const to   = _tabs.find(t => t.uid === toTabUid);
+    const to = _tabs.find(t => t.uid === toTabUid);
     if (!from || !to) return 0;
     const codeSet = new Set(codes);
     let moved = 0;
@@ -207,7 +207,7 @@ const AnStorage = (() => {
   // ── 종목 복사 ────────────────────────────────
   async function copyStocks(codes, toTabUid) {
     const from = getActiveTab();
-    const to   = _tabs.find(t => t.uid === toTabUid);
+    const to = _tabs.find(t => t.uid === toTabUid);
     if (!from || !to) return 0;
     let copied = 0;
     for (const code of codes) {
@@ -234,10 +234,16 @@ const AnStorage = (() => {
   }
 
   // ── 인터벌 ────────────────────────────────
-  function getInterval() { return _settings.interval || '1d'; }
-  async function setInterval(v) {
-    _settings.interval = v;
-    await _syncSetting('interval', v);
+  function getPreviewInterval() { return _settings.preview_interval || '1d'; }
+  async function setPreviewInterval(v) {
+    _settings.preview_interval = v;
+    await _syncSetting('preview_interval', v);
+  }
+
+  function getListInterval() { return _settings.list_interval || '1d'; }
+  async function setListInterval(v) {
+    _settings.list_interval = v;
+    await _syncSetting('list_interval', v);
   }
 
   // ── 내부 헬퍼 ────────────────────────────────
@@ -267,7 +273,7 @@ const AnStorage = (() => {
     init, getTabs, getActiveTabId, getActiveTab, getWatchlist,
     setActiveTabId, addTab, removeTab, renameTab, reorderTabs,
     addStock, removeStocks, reorderStocks, moveStocks, copyStocks,
-    updateStockName, getInterval, setInterval,
+    updateStockName, getPreviewInterval, setPreviewInterval, getListInterval, setListInterval,
   };
 })();
 
@@ -282,7 +288,7 @@ async function _anSaveFundamentalToServer(code, data) {
       trailingPE: data.trailingPE, eps: data.eps, beta: data.beta,
       fetchedAt: Date.now(), fetchFailed: false,
     });
-  } catch(e) {
+  } catch (e) {
     console.warn(`[An 펀더멘털 저장 실패] ${code}:`, e.message);
   }
 }
@@ -296,7 +302,8 @@ function _anEl(id) { return document.getElementById('an-' + id); }
    일봉/주봉 토글
 ══════════════════════════════════════════════ */
 function anInitHeaderControls() {
-  AnState.previewInterval = AnStorage.getInterval();
+  AnState.previewInterval = AnStorage.getPreviewInterval();
+  AnState.listInterval = AnStorage.getListInterval();
   const container = _anEl('intervalToggle');
   if (!container) return;
   container.querySelectorAll('.interval-btn').forEach(btn => {
@@ -304,12 +311,28 @@ function anInitHeaderControls() {
     btn.addEventListener('click', async () => {
       if (AnState.previewInterval === btn.dataset.interval) return;
       AnState.previewInterval = btn.dataset.interval;
-      await AnStorage.setInterval(AnState.previewInterval);
+      await AnStorage.setPreviewInterval(AnState.previewInterval);
       container.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       if (AnState.previewCode) anDoSearch(AnState.previewCode);
     });
   });
+
+  const listContainer = _anEl('listIntervalToggle');
+  if (listContainer) {
+    listContainer.querySelectorAll('.list-interval-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.interval === AnState.listInterval);
+      btn.addEventListener('click', async () => {
+        if (AnState.listInterval === btn.dataset.interval) return;
+        AnState.listInterval = btn.dataset.interval;
+        await AnStorage.setListInterval(AnState.listInterval);
+        listContainer.querySelectorAll('.list-interval-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        anDoRefreshAll();
+      });
+    });
+  }
+
   AnState.candleCount = 52;
 }
 
@@ -317,18 +340,18 @@ function anInitHeaderControls() {
    탭 관리
 ══════════════════════════════════════════════ */
 function anRenderTabs() {
-  const tabs     = AnStorage.getTabs();
+  const tabs = AnStorage.getTabs();
   const activeId = AnStorage.getActiveTabId();
-  const listEl   = _anEl('tabList');
+  const listEl = _anEl('tabList');
   if (!listEl) return;
   listEl.innerHTML = '';
 
   tabs.forEach(tab => {
     const el = document.createElement('div');
-    el.className  = 'tab-item' + (tab.uid === activeId ? ' active' : '');
+    el.className = 'tab-item' + (tab.uid === activeId ? ' active' : '');
     el.dataset.id = tab.uid;
-    el.draggable  = true;
-    el.innerHTML  = `
+    el.draggable = true;
+    el.innerHTML = `
       <span class="tab-label" data-id="${tab.uid}">${tab.name}</span>
       <button class="tab-close" data-id="${tab.uid}" title="탭 삭제">
         <i class="fas fa-times"></i>
@@ -361,7 +384,7 @@ function anRenderTabs() {
       e.dataTransfer.effectAllowed = 'move';
       el.classList.add('dragging-tab');
     });
-    el.addEventListener('dragend',  () => el.classList.remove('dragging-tab'));
+    el.addEventListener('dragend', () => el.classList.remove('dragging-tab'));
     el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over-tab'); });
     el.addEventListener('dragleave', () => el.classList.remove('drag-over-tab'));
     el.addEventListener('drop', async e => {
@@ -381,10 +404,10 @@ function anRenderTabs() {
 function anStartTabRename(tabId, labelEl) {
   const input = _anEl('tabRenameInput');
   if (!input) return;
-  const rect  = labelEl.getBoundingClientRect();
+  const rect = labelEl.getBoundingClientRect();
   input.value = labelEl.textContent;
   input.style.cssText = `display:block;position:fixed;left:${rect.left}px;top:${rect.top}px;` +
-                        `width:${Math.max(80, rect.width + 20)}px;z-index:2000;`;
+    `width:${Math.max(80, rect.width + 20)}px;z-index:2000;`;
   input.focus(); input.select();
   const finish = async () => {
     const val = input.value.trim();
@@ -447,7 +470,7 @@ async function anDoSearch(input) {
   anHidePreview(); anHideSearchError(); anShowSearchLoading(true);
   AnState.previewCode = input.toUpperCase();
   try {
-    const raw      = await API.fetchStock(input, AnState.candleCount, AnState.previewInterval);
+    const raw = await API.fetchStock(input, AnState.candleCount, AnState.previewInterval);
     const analyzed = Indicators.analyzeAll(raw);
     AnState.previewCode = analyzed.code;
     AnState.previewData = analyzed;
@@ -504,26 +527,26 @@ function anRenderCorrSection(targetCode) {
 
   const { pos, neu, neg } = result;
   const barColor = r => r >= 0 ? 'var(--up)' : 'var(--down)';
-  const rFmt     = r => (r >= 0 ? '+' : '') + r.toFixed(2);
+  const rFmt = r => (r >= 0 ? '+' : '') + r.toFixed(2);
 
   const makeRow = (item, badgeClass, badgeText) => {
-    const row   = document.createElement('div');
+    const row = document.createElement('div');
     row.className = 'corr-row';
     const badge = document.createElement('span');
-    badge.className   = `corr-badge ${badgeClass}`;
+    badge.className = `corr-badge ${badgeClass}`;
     badge.textContent = badgeText;
     const score = document.createElement('span');
-    score.className   = 'corr-score';
+    score.className = 'corr-score';
     score.style.color = barColor(item.r);
     score.textContent = rFmt(item.r);
     const nameEl = document.createElement('span');
-    nameEl.className   = 'corr-name corr-clickable';
+    nameEl.className = 'corr-name corr-clickable';
     nameEl.textContent = item.name;
-    nameEl.title       = `${item.name} 조회`;
+    nameEl.title = `${item.name} 조회`;
     const codeEl = document.createElement('span');
-    codeEl.className   = 'corr-code corr-clickable';
+    codeEl.className = 'corr-code corr-clickable';
     codeEl.textContent = item.code;
-    codeEl.title       = `${item.name} 조회`;
+    codeEl.title = `${item.name} 조회`;
     const onClick = () => {
       _anEl('stockInput').value = item.code;
       anDoSearch(item.code);
@@ -546,18 +569,18 @@ function anRenderCorrSection(targetCode) {
 ══════════════════════════════════════════════ */
 function anRenderPreview(data) {
   const { name, code, market, currentPrice, isUS, interval,
-          todayChange, todayChangePct, change, changePct,
-          bb, alert: al } = data;
+    todayChange, todayChangePct, change, changePct,
+    bb, alert: al } = data;
 
-  _anEl('previewName').textContent  = name;
-  _anEl('previewCode').textContent  = data.ticker;
+  _anEl('previewName').textContent = name;
+  _anEl('previewCode').textContent = data.ticker;
   _anEl('previewPrice').textContent = fmtPrice(currentPrice, isUS);
   _anEl('previewIntervalBadge').textContent = interval === '1wk' ? '주봉' : '일봉';
 
   const todayEl = _anEl('previewTodayChange');
   if (todayEl) {
     todayEl.textContent = `${fmtChg(todayChange, isUS)} (${fmtPct(todayChangePct)})`;
-    todayEl.className   = 'preview-today-chg ' + (todayChange >= 0 ? 'up' : 'down');
+    todayEl.className = 'preview-today-chg ' + (todayChange >= 0 ? 'up' : 'down');
   }
   const periodLbl = _anEl('previewPeriodLabel');
   if (periodLbl) {
@@ -567,33 +590,33 @@ function anRenderPreview(data) {
   const chgEl = _anEl('previewChange');
   if (chgEl) {
     chgEl.textContent = `${fmtChg(change, isUS)} (${fmtPct(changePct)})`;
-    chgEl.className   = 'preview-change ' + (change >= 0 ? 'up' : 'down');
+    chgEl.className = 'preview-change ' + (change >= 0 ? 'up' : 'down');
   }
   const alertEl = _anEl('previewAlert');
   if (alertEl) {
     alertEl.textContent = al.stars;
-    alertEl.className   = `preview-alert alert-lv${al.level}`;
+    alertEl.className = `preview-alert alert-lv${al.level}`;
   }
 
   if (bb) {
-    const pct  = (al.ratio * 100).toFixed(1);
+    const pct = (al.ratio * 100).toFixed(1);
     const fill = _anEl('previewBBFill');
     if (fill) { fill.style.width = pct + '%'; fill.className = `bb-bar-fill lv${al.level}`; }
     const marker = _anEl('previewBBMarker');
     if (marker) marker.style.left = pct + '%';
 
     const setBBBand = (pctId, priceId, band) => {
-      const pctEl   = _anEl(pctId);
+      const pctEl = _anEl(pctId);
       const priceEl = _anEl(priceId);
       if (!pctEl && !priceEl) return;
-      const v   = ((band - currentPrice) / currentPrice) * 100;
+      const v = ((band - currentPrice) / currentPrice) * 100;
       const cls = v >= 0 ? 'pct-up' : 'pct-down';
-      if (pctEl)   { pctEl.textContent   = (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; pctEl.className   = 'bb-pct-val ' + cls; }
-      if (priceEl) { priceEl.textContent = fmtPrice(band, isUS);                      priceEl.className = 'bb-pct-price ' + cls; }
+      if (pctEl) { pctEl.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; pctEl.className = 'bb-pct-val ' + cls; }
+      if (priceEl) { priceEl.textContent = fmtPrice(band, isUS); priceEl.className = 'bb-pct-price ' + cls; }
     };
-    setBBBand('previewBBUpperPct',  'previewBBUpperPrice',  bb.upper);
+    setBBBand('previewBBUpperPct', 'previewBBUpperPrice', bb.upper);
     setBBBand('previewBBMiddlePct', 'previewBBMiddlePrice', bb.middle);
-    setBBBand('previewBBLowerPct',  'previewBBLowerPrice',  bb.lower);
+    setBBBand('previewBBLowerPct', 'previewBBLowerPrice', bb.lower);
   }
 
   _anEl('leftPanelTitle').innerHTML =
@@ -635,15 +658,15 @@ async function anShowStockPreview(code) {
 
 async function _anBgRefreshStock(input, registeredCode) {
   try {
-    const raw      = await API.fetchStock(input, AnState.candleCount, AnState.listInterval);
+    const raw = await API.fetchStock(input, AnState.candleCount, AnState.listInterval);
     const analyzed = Indicators.analyzeAll(raw);
-    const code     = registeredCode || analyzed.code;
+    const code = registeredCode || analyzed.code;
     if (Object.prototype.hasOwnProperty.call(AnState.watchData, code)) {
       AnState.watchData[code] = analyzed;
       _anRefreshListItem(code);
       _anFixStockNameIfNeeded(code, analyzed.name);
     }
-  } catch (_) {}
+  } catch (_) { }
 }
 
 function anHidePreview() {
@@ -662,14 +685,14 @@ function anShowSearchError(msg) {
   _anEl('searchErrorMsg').textContent = msg;
   _anEl('searchError').style.display = 'flex';
 }
-function anHideSearchError()    { _anEl('searchError').style.display = 'none'; }
+function anHideSearchError() { _anEl('searchError').style.display = 'none'; }
 function anShowSearchLoading(v) { _anEl('searchLoading').style.display = v ? 'flex' : 'none'; }
 
 /* ══════════════════════════════════════════════
    전체 새로고침
 ══════════════════════════════════════════════ */
 async function anDoRefreshAll() {
-  const allCodes  = new Set();
+  const allCodes = new Set();
   const allStocks = [];
   AnStorage.getTabs().forEach(tab => {
     tab.stocks.forEach(s => {
@@ -678,8 +701,8 @@ async function anDoRefreshAll() {
   });
   if (!allStocks.length) return;
 
-  const total  = allStocks.length;
-  let done     = 0;
+  const total = allStocks.length;
+  let done = 0;
   const loadEl = _anEl('listLoading');
   const setMsg = msg => { const s = loadEl?.querySelector('span'); if (s) s.textContent = msg; };
   if (loadEl) loadEl.style.display = 'flex';
@@ -732,10 +755,10 @@ async function _anFetchAllFundamentals(stocks) {
     seen.add(key); return true;
   });
 
-  const tickers       = uniq.map(s => s.code.toUpperCase());
+  const tickers = uniq.map(s => s.code.toUpperCase());
   const stockByTicker = new Map(uniq.map(s => [s.code.toUpperCase(), s]));
-  const total  = tickers.length;
-  const CHUNK  = 10;
+  const total = tickers.length;
+  const CHUNK = 10;
   const chunks = [];
   for (let i = 0; i < total; i += CHUNK) chunks.push(tickers.slice(i, i + CHUNK));
 
@@ -745,12 +768,12 @@ async function _anFetchAllFundamentals(stocks) {
     const chunk = chunks[ci];
     const batchResult = await API.fetchFundamentalsBatch(chunk);
     for (const ticker of chunk) {
-      const s        = stockByTicker.get(ticker);
+      const s = stockByTicker.get(ticker);
       const cacheKey = ticker.replace(/\.(KS|KQ)$/, '');
-      const data     = batchResult.get(ticker) ?? { ..._AN_EMPTY_FUND, _fetchFailed: true };
+      const data = batchResult.get(ticker) ?? { ..._AN_EMPTY_FUND, _fetchFailed: true };
       if (!data._fetchFailed) {
         const fd = { ...data };
-        AnState.fundamentals[s.code]   = fd;
+        AnState.fundamentals[s.code] = fd;
         AnState.fundamentals[cacheKey] = fd;
         if (/^\d{5,6}$/.test(cacheKey)) AnState.fundamentals[cacheKey + '.KS'] = fd;
         _anRefreshListItem(s.code);
@@ -773,8 +796,8 @@ function _anFixStockNameIfNeeded(code, cleanName) {
 ══════════════════════════════════════════════ */
 function anRenderList() {
   const watchlist = AnStorage.getWatchlist();
-  const listEl    = _anEl('stockList');
-  const emptyEl   = _anEl('emptyState');
+  const listEl = _anEl('stockList');
+  const emptyEl = _anEl('emptyState');
   anUpdateStockCount();
   if (!listEl) return;
 
@@ -806,23 +829,23 @@ function anRenderList() {
 
 function _anBuildListItem(stock, data) {
   const item = document.createElement('div');
-  item.className    = 'stock-item an-item';
+  item.className = 'stock-item an-item';
   item.dataset.code = stock.code;
 
-  const al   = data?.alert || { level: 0, stars: '', label: '--', ratio: 0.5 };
+  const al = data?.alert || { level: 0, stars: '', label: '--', ratio: 0.5 };
   if (al.ratio == null) al.ratio = 0.5;
   const isUS = data?.isUS ?? (stock.market === 'US');
 
-  const priceStr     = data ? fmtPrice(data.currentPrice, isUS) : '--';
-  const todayPctVal  = data?.todayChangePct ?? 0;
-  const todayChgVal  = data?.todayChange    ?? 0;
-  const todayStr     = data ? fmtPct(todayPctVal) : '--';
-  const todayUpDown  = data ? (todayChgVal >= 0 ? 'up' : 'down') : '';
+  const priceStr = data ? fmtPrice(data.currentPrice, isUS) : '--';
+  const todayPctVal = data?.todayChangePct ?? 0;
+  const todayChgVal = data?.todayChange ?? 0;
+  const todayStr = data ? fmtPct(todayPctVal) : '--';
+  const todayUpDown = data ? (todayChgVal >= 0 ? 'up' : 'down') : '';
   const periodPctVal = data?.changePct ?? 0;
-  const periodChgVal = data?.change    ?? 0;
-  const periodStr    = data ? fmtPct(periodPctVal) : '--';
+  const periodChgVal = data?.change ?? 0;
+  const periodStr = data ? fmtPct(periodPctVal) : '--';
   const periodUpDown = data ? (periodChgVal >= 0 ? 'up' : 'down') : '';
-  const bbPct        = (al.ratio * 100).toFixed(1);
+  const bbPct = (al.ratio * 100).toFixed(1);
 
   let bbUpperPct = '--', bbMiddlePct = '--', bbLowerPct = '--';
   let bbUpperCls = '', bbMiddleCls = '', bbLowerCls = '';
@@ -840,26 +863,26 @@ function _anBuildListItem(stock, data) {
     bbLowerPct = l.str; bbLowerCls = l.cls;
   }
 
-  const fd       = AnState.fundamentals[stock.code] || {};
-  const trailPE   = fmtFundNum(fd.trailingPE);
+  const fd = AnState.fundamentals[stock.code] || {};
+  const trailPE = fmtFundNum(fd.trailingPE);
   const forwardPE = fmtFundNum(fd.forwardPE);
-  const pbrVal    = fmtFundNum(fd.pbr);
-  const evEbitda  = fmtFundNum(fd.evToEbitda);
-  const divYield  = fd.dividendYield != null ? fmtFundNum(fd.dividendYield) + '%' : '--';
-  const epsVal    = fmtFundNum(fd.eps);
-  const betaVal   = fmtFundNum(fd.beta);
-  const betaCls   = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
-  const anSecVal  = fd.sector || '';
-  const anSecShort = anSecVal.length > 16 ? anSecVal.slice(0,15)+'…' : anSecVal;
+  const pbrVal = fmtFundNum(fd.pbr);
+  const evEbitda = fmtFundNum(fd.evToEbitda);
+  const divYield = fd.dividendYield != null ? fmtFundNum(fd.dividendYield) + '%' : '--';
+  const epsVal = fmtFundNum(fd.eps);
+  const betaVal = fmtFundNum(fd.beta);
+  const betaCls = fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '';
+  const anSecVal = fd.sector || '';
+  const anSecShort = anSecVal.length > 16 ? anSecVal.slice(0, 15) + '…' : anSecVal;
 
   item.innerHTML = `
     <div class="col-check">
       <input type="checkbox" id="an-cb-${stock.code}" data-code="${stock.code}" />
     </div>
     <div class="col-alert">
-      ${al.level===2 ? `<span class="star-badge lv2" title="BB하단 근접">★★</span>`
-       : al.level===1 ? `<span class="star-badge lv1" title="BB하단 접근">★</span>`
-       : '<span class="no-alert">—</span>'}
+      ${al.level === 2 ? `<span class="star-badge lv2" title="BB하단 근접">★★</span>`
+      : al.level === 1 ? `<span class="star-badge lv1" title="BB하단 접근">★</span>`
+        : '<span class="no-alert">—</span>'}
     </div>
     <div class="col-name">
       <span class="item-name">${data?.name || stock.name || stock.code}</span>
@@ -955,27 +978,27 @@ function _anRefreshListItem(code) {
     e2.textContent = val;
     if (cls !== undefined) e2.className = `fund-val ${cls}`;
   };
-  _set('.col-trail-pe',  fmtFundNum(fd.trailingPE));
+  _set('.col-trail-pe', fmtFundNum(fd.trailingPE));
   _set('.col-forward-pe', fmtFundNum(fd.forwardPE));
-  _set('.col-pbr',       fmtFundNum(fd.pbr));
+  _set('.col-pbr', fmtFundNum(fd.pbr));
   _set('.col-ev-ebitda', fmtFundNum(fd.evToEbitda));
-  _set('.col-div-yield', fd.dividendYield != null ? fmtFundNum(fd.dividendYield)+'%' : '--');
-  _set('.col-eps',       fmtFundNum(fd.eps));
-  _set('.col-beta',      fmtFundNum(fd.beta),
+  _set('.col-div-yield', fd.dividendYield != null ? fmtFundNum(fd.dividendYield) + '%' : '--');
+  _set('.col-eps', fmtFundNum(fd.eps));
+  _set('.col-beta', fmtFundNum(fd.beta),
     fd.beta != null ? (fd.beta >= 1 ? 'fund-up' : 'fund-down') : '');
   const anSv = fd.sector || '';
-  _set('.col-sector', anSv.length > 16 ? anSv.slice(0,15)+'…' : anSv);
+  _set('.col-sector', anSv.length > 16 ? anSv.slice(0, 15) + '…' : anSv);
 
   if (!data) return;
 
-  const al   = data.alert || { level: 0, stars: '', label: '--', ratio: 0.5 };
+  const al = data.alert || { level: 0, stars: '', label: '--', ratio: 0.5 };
   const isUS = data.isUS;
 
   const alertEl = el.querySelector('.col-alert');
   if (alertEl) alertEl.innerHTML =
     al.level === 2 ? `<span class="star-badge lv2">★★</span>`
-    : al.level === 1 ? `<span class="star-badge lv1">★</span>`
-    : '<span class="no-alert">—</span>';
+      : al.level === 1 ? `<span class="star-badge lv1">★</span>`
+        : '<span class="no-alert">—</span>';
 
   const priceEl = el.querySelector('.col-price');
   if (priceEl) priceEl.innerHTML = `<span class="item-price">${fmtPrice(data.currentPrice, isUS)}</span>`;
@@ -983,18 +1006,18 @@ function _anRefreshListItem(code) {
   const todayEl = el.querySelector('.col-today-chg');
   if (todayEl) {
     todayEl.textContent = fmtPct(data.todayChangePct ?? 0);
-    todayEl.className   = `col-today-chg ${(data.todayChange ?? 0) >= 0 ? 'up' : 'down'}`;
+    todayEl.className = `col-today-chg ${(data.todayChange ?? 0) >= 0 ? 'up' : 'down'}`;
   }
   const chgEl = el.querySelector('.col-change');
   if (chgEl) {
     chgEl.textContent = fmtPct(data.changePct ?? 0);
-    chgEl.className   = `col-change ${(data.change ?? 0) >= 0 ? 'up' : 'down'}`;
+    chgEl.className = `col-change ${(data.change ?? 0) >= 0 ? 'up' : 'down'}`;
   }
 
   const bbFill = el.querySelector('.bb-pos-fill');
   if (bbFill) {
     bbFill.style.width = (al.ratio * 100).toFixed(1) + '%';
-    bbFill.className   = `bb-pos-fill lv${al.level}`;
+    bbFill.className = `bb-pos-fill lv${al.level}`;
   }
   const bbMarker = el.querySelector('.bb-pos-marker');
   if (bbMarker) bbMarker.style.left = (al.ratio * 100).toFixed(1) + '%';
@@ -1037,24 +1060,24 @@ function _anSortList(list, col, dir) {
     const da = AnState.watchData[a.code], db = AnState.watchData[b.code];
     let va, vb;
     switch (col) {
-      case 'alert':    va = da?.alert?.level    ?? -1;       vb = db?.alert?.level    ?? -1;       break;
-      case 'name':     va = (da?.name || a.code).toLowerCase(); vb = (db?.name || b.code).toLowerCase(); break;
-      case 'price':    va = da?.currentPrice    ?? -Infinity; vb = db?.currentPrice    ?? -Infinity; break;
-      case 'todayChg': va = da?.todayChangePct  ?? -Infinity; vb = db?.todayChangePct  ?? -Infinity; break;
-      case 'change':   va = da?.changePct       ?? -Infinity; vb = db?.changePct       ?? -Infinity; break;
-      case 'bbRatio':  va = da?.bbRatio         ?? -1;       vb = db?.bbRatio         ?? -1;       break;
-      case 'trailPE':   va = AnState.fundamentals[a.code]?.trailingPE   ?? -Infinity; vb = AnState.fundamentals[b.code]?.trailingPE   ?? -Infinity; break;
-      case 'forwardPE': va = AnState.fundamentals[a.code]?.forwardPE    ?? -Infinity; vb = AnState.fundamentals[b.code]?.forwardPE    ?? -Infinity; break;
-      case 'pbr':       va = AnState.fundamentals[a.code]?.pbr          ?? -Infinity; vb = AnState.fundamentals[b.code]?.pbr          ?? -Infinity; break;
-      case 'evEbitda':  va = AnState.fundamentals[a.code]?.evToEbitda   ?? -Infinity; vb = AnState.fundamentals[b.code]?.evToEbitda   ?? -Infinity; break;
-      case 'divYield':  va = AnState.fundamentals[a.code]?.dividendYield ?? -Infinity; vb = AnState.fundamentals[b.code]?.dividendYield ?? -Infinity; break;
-      case 'sector':    va = (AnState.fundamentals[a.code]?.sector||'').toLowerCase(); vb = (AnState.fundamentals[b.code]?.sector||'').toLowerCase(); break;
-      case 'eps':      va = AnState.fundamentals[a.code]?.eps        ?? -Infinity; vb = AnState.fundamentals[b.code]?.eps        ?? -Infinity; break;
-      case 'beta':     va = AnState.fundamentals[a.code]?.beta       ?? -Infinity; vb = AnState.fundamentals[b.code]?.beta       ?? -Infinity; break;
+      case 'alert': va = da?.alert?.level ?? -1; vb = db?.alert?.level ?? -1; break;
+      case 'name': va = (da?.name || a.code).toLowerCase(); vb = (db?.name || b.code).toLowerCase(); break;
+      case 'price': va = da?.currentPrice ?? -Infinity; vb = db?.currentPrice ?? -Infinity; break;
+      case 'todayChg': va = da?.todayChangePct ?? -Infinity; vb = db?.todayChangePct ?? -Infinity; break;
+      case 'change': va = da?.changePct ?? -Infinity; vb = db?.changePct ?? -Infinity; break;
+      case 'bbRatio': va = da?.bbRatio ?? -1; vb = db?.bbRatio ?? -1; break;
+      case 'trailPE': va = AnState.fundamentals[a.code]?.trailingPE ?? -Infinity; vb = AnState.fundamentals[b.code]?.trailingPE ?? -Infinity; break;
+      case 'forwardPE': va = AnState.fundamentals[a.code]?.forwardPE ?? -Infinity; vb = AnState.fundamentals[b.code]?.forwardPE ?? -Infinity; break;
+      case 'pbr': va = AnState.fundamentals[a.code]?.pbr ?? -Infinity; vb = AnState.fundamentals[b.code]?.pbr ?? -Infinity; break;
+      case 'evEbitda': va = AnState.fundamentals[a.code]?.evToEbitda ?? -Infinity; vb = AnState.fundamentals[b.code]?.evToEbitda ?? -Infinity; break;
+      case 'divYield': va = AnState.fundamentals[a.code]?.dividendYield ?? -Infinity; vb = AnState.fundamentals[b.code]?.dividendYield ?? -Infinity; break;
+      case 'sector': va = (AnState.fundamentals[a.code]?.sector || '').toLowerCase(); vb = (AnState.fundamentals[b.code]?.sector || '').toLowerCase(); break;
+      case 'eps': va = AnState.fundamentals[a.code]?.eps ?? -Infinity; vb = AnState.fundamentals[b.code]?.eps ?? -Infinity; break;
+      case 'beta': va = AnState.fundamentals[a.code]?.beta ?? -Infinity; vb = AnState.fundamentals[b.code]?.beta ?? -Infinity; break;
       default: return 0;
     }
     if (va < vb) return dir === 'asc' ? -1 : 1;
-    if (va > vb) return dir === 'asc' ?  1 : -1;
+    if (va > vb) return dir === 'asc' ? 1 : -1;
     return 0;
   });
 }
@@ -1064,12 +1087,12 @@ function _anUpdateSortIcons() {
   if (!container) return;
   container.querySelectorAll('.sort-col').forEach(th => {
     const col = th.dataset.col;
-    const el  = th.querySelector('.sort-icon');
+    const el = th.querySelector('.sort-icon');
     if (!el) return;
     el.innerHTML = AnState.sortCol === col
       ? (AnState.sortDir === 'asc'
-          ? '<i class="fas fa-sort-up active-sort"></i>'
-          : '<i class="fas fa-sort-down active-sort"></i>')
+        ? '<i class="fas fa-sort-up active-sort"></i>'
+        : '<i class="fas fa-sort-down active-sort"></i>')
       : '<i class="fas fa-sort"></i>';
   });
 }
@@ -1079,15 +1102,17 @@ function _anUpdateSortIcons() {
 ══════════════════════════════════════════════ */
 function anInitColResizers() {
   const CSS = {
-    'an-alert':'--col-alert','an-name':'--col-name','an-price':'--col-price',
-    'an-todayChg':'--col-today-chg','an-change':'--col-change','an-bbRatio':'--col-bb',
-    'an-trailPE':'--col-trail-pe','an-forwardPE':'--col-forward-pe','an-pbr':'--col-pbr',
-    'an-evEbitda':'--col-ev-ebitda','an-divYield':'--col-div-yield',
-    'an-eps':'--col-eps','an-beta':'--col-beta','an-sector':'--col-sector',
+    'an-alert': '--col-alert', 'an-name': '--col-name', 'an-price': '--col-price',
+    'an-todayChg': '--col-today-chg', 'an-change': '--col-change', 'an-bbRatio': '--col-bb',
+    'an-trailPE': '--col-trail-pe', 'an-forwardPE': '--col-forward-pe', 'an-pbr': '--col-pbr',
+    'an-evEbitda': '--col-ev-ebitda', 'an-divYield': '--col-div-yield',
+    'an-eps': '--col-eps', 'an-beta': '--col-beta', 'an-sector': '--col-sector',
   };
-  const MIN = { 'an-alert':48,'an-name':70,'an-price':70,'an-todayChg':60,'an-change':60,
-                'an-bbRatio':120,'an-trailPE':40,'an-forwardPE':40,'an-pbr':40,
-                'an-evEbitda':40,'an-divYield':40,'an-eps':40,'an-beta':40,'an-sector':60 };
+  const MIN = {
+    'an-alert': 48, 'an-name': 70, 'an-price': 70, 'an-todayChg': 60, 'an-change': 60,
+    'an-bbRatio': 120, 'an-trailPE': 40, 'an-forwardPE': 40, 'an-pbr': 40,
+    'an-evEbitda': 40, 'an-divYield': 40, 'an-eps': 40, 'an-beta': 40, 'an-sector': 60
+  };
   const container = document.getElementById('tab-analysis');
   if (!container) return;
 
@@ -1132,18 +1157,18 @@ function anInitCheckAll() {
   });
 }
 function _anSyncCheckAll() {
-  const total   = AnStorage.getWatchlist().length;
+  const total = AnStorage.getWatchlist().length;
   const checked = AnState.checkedCodes.size;
   const cb = _anEl('checkAll');
   if (!cb) return;
-  cb.checked       = total > 0 && checked === total;
+  cb.checked = total > 0 && checked === total;
   cb.indeterminate = checked > 0 && checked < total;
 }
 function anUpdateDeleteBtn() {
-  const n   = AnState.checkedCodes.size;
+  const n = AnState.checkedCodes.size;
   const btn = _anEl('btnDeleteSelected');
   if (!btn) return;
-  btn.disabled  = n === 0;
+  btn.disabled = n === 0;
   btn.innerHTML = `<i class="fas fa-trash-alt"></i> 선택 삭제${n > 0 ? ` (${n})` : ''}`;
 
   const hasMultiTab = AnStorage.getTabs().length > 1;
@@ -1153,7 +1178,7 @@ function anUpdateDeleteBtn() {
   if (btnCopy) btnCopy.disabled = n === 0 || !hasMultiTab;
 
   const dis = n === 0;
-  ['btnMoveTop','btnMoveUp','btnMoveDown','btnMoveBot'].forEach(id => {
+  ['btnMoveTop', 'btnMoveUp', 'btnMoveDown', 'btnMoveBot'].forEach(id => {
     const b = _anEl(id);
     if (b) b.disabled = dis;
   });
@@ -1195,9 +1220,9 @@ function anInitMoveButtons() {
     if (!AnState.checkedCodes.size) return;
     const tab = AnStorage.getActiveTab();
     if (!tab) return;
-    const stocks   = [...tab.stocks];
+    const stocks = [...tab.stocks];
     const selected = new Set(AnState.checkedCodes);
-    const codes    = stocks.map(s => s.code);
+    const codes = stocks.map(s => s.code);
 
     if (direction === 'top') {
       const sel = codes.filter(c => selected.has(c));
@@ -1222,23 +1247,23 @@ function anInitMoveButtons() {
     anRenderList();
   }
 
-  _anEl('btnMoveTop') ?.addEventListener('click', () => _anMoveOrder('top'));
-  _anEl('btnMoveUp')  ?.addEventListener('click', () => _anMoveOrder('up'));
+  _anEl('btnMoveTop')?.addEventListener('click', () => _anMoveOrder('top'));
+  _anEl('btnMoveUp')?.addEventListener('click', () => _anMoveOrder('up'));
   _anEl('btnMoveDown')?.addEventListener('click', () => _anMoveOrder('down'));
-  _anEl('btnMoveBot') ?.addEventListener('click', () => _anMoveOrder('bot'));
+  _anEl('btnMoveBot')?.addEventListener('click', () => _anMoveOrder('bot'));
 }
 
 function _anToggleBulkDropdown(type, anchorEl) {
   const existing = document.getElementById('an-bulkDropdown');
   if (existing) { existing.remove(); return; }
-  const codes   = [...AnState.checkedCodes];
+  const codes = [...AnState.checkedCodes];
   if (!codes.length) return;
-  const tabs    = AnStorage.getTabs();
+  const tabs = AnStorage.getTabs();
   const othTabs = tabs.filter(t => t.uid !== AnStorage.getActiveTabId());
   if (!othTabs.length) { showToast('이동/복사할 다른 그룹이 없습니다.', 'warn'); return; }
 
   const dd = document.createElement('div');
-  dd.id        = 'an-bulkDropdown';
+  dd.id = 'an-bulkDropdown';
   dd.className = 'bulk-dropdown';
   dd.innerHTML = othTabs.map(t => `
     <button class="bulk-dd-item" data-tab="${t.uid}">
@@ -1249,7 +1274,7 @@ function _anToggleBulkDropdown(type, anchorEl) {
     btn.addEventListener('click', async () => {
       dd.remove();
       const toTabUid = btn.dataset.tab;
-      const toTab    = AnStorage.getTabs().find(t => t.uid === toTabUid);
+      const toTab = AnStorage.getTabs().find(t => t.uid === toTabUid);
       let n;
       if (type === 'move') {
         n = await AnStorage.moveStocks(codes, toTabUid);
@@ -1261,7 +1286,7 @@ function _anToggleBulkDropdown(type, anchorEl) {
       }
       showToast(
         n > 0 ? `✅ ${n}개 종목 → <b>${toTab?.name}</b> ${type === 'move' ? '이동' : '복사'} 완료`
-               : `이미 <b>${toTab?.name}</b>에 존재하는 종목입니다.`,
+          : `이미 <b>${toTab?.name}</b>에 존재하는 종목입니다.`,
         n > 0 ? 'success' : 'warn'
       );
     });
@@ -1285,10 +1310,10 @@ function anInitRefreshBtn() {
   const btn = _anEl('btnRefresh');
   if (!btn) return;
   btn.addEventListener('click', async () => {
-    btn.disabled  = true;
+    btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> 새로고침 중...';
     await anDoRefreshAll();
-    btn.disabled  = false;
+    btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-sync-alt"></i> 새로고침';
     showToast('전체 종목 업데이트 완료', 'success');
   });
@@ -1327,8 +1352,8 @@ async function initAnalysisTab() {
   }));
 
   if (allStocks.length) {
-    const total  = allStocks.length;
-    let done     = 0;
+    const total = allStocks.length;
+    let done = 0;
     const loadEl = _anEl('listLoading');
     const setMsg = msg => { const s = loadEl?.querySelector('span'); if (s) s.textContent = msg; };
     if (loadEl) loadEl.style.display = 'flex';

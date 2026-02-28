@@ -116,35 +116,58 @@ function showToast(msg, type = 'info') {
    일봉/주봉 토글 — 좌측 미리보기 전용
    (우측 리스트는 previewInterval 과 동기화)
 ══════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════
+   일봉/주봉 토글 — 좌측/우측 분리
+══════════════════════════════════════════════ */
 function initHeaderControls() {
-  // 저장된 미리보기 인터벌 복원
-  AppState.previewInterval = Storage.getInterval();
-  AppState.listInterval = AppState.previewInterval;  // 리스트도 동일 interval 로 시작
+  AppState.previewInterval = Storage.getPreviewInterval();
+  AppState.listInterval = Storage.getListInterval();
+
+  // 좌측 미리보기 토글
   document.querySelectorAll('.interval-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.interval === AppState.previewInterval);
     btn.addEventListener('click', async () => {
       if (AppState.previewInterval === btn.dataset.interval) return;
-      // JS 플래그로 중복 클릭 방지 (CSS disabled만으로는 부족)
       if (btn._switching) return;
 
-      // 버튼 잠금 — 배치 완료 전 중복 클릭 방지
       const allBtns = document.querySelectorAll('.interval-btn');
       allBtns.forEach(b => { b.disabled = true; b._switching = true; });
 
       AppState.previewInterval = btn.dataset.interval;
-      AppState.listInterval = btn.dataset.interval;
-      await Storage.setInterval(AppState.previewInterval);
+      await Storage.setPreviewInterval(AppState.previewInterval);
       allBtns.forEach(b => b.classList.toggle('active', b === btn));
 
-      // 배치 1회 호출 → 미리보기 우선 렌더 → 리스트 순차 렌더
-      await _intervalSwitch(AppState.previewInterval);
+      if (AppState.previewCode) {
+        doSearch(AppState.previewCode, true);
+      }
 
-      // 버튼 잠금 해제
       allBtns.forEach(b => { b.disabled = false; b._switching = false; });
     });
   });
 
-  // candleCount = 52 고정 (UI 버튼 없음)
+  // 우측 리스트 토글
+  const listContainer = document.getElementById('listIntervalToggle');
+  if (listContainer) {
+    listContainer.querySelectorAll('.list-interval-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.interval === AppState.listInterval);
+      btn.addEventListener('click', async () => {
+        if (AppState.listInterval === btn.dataset.interval) return;
+        if (btn._switching) return;
+
+        const allBtns = document.querySelectorAll('.list-interval-btn');
+        allBtns.forEach(b => { b.disabled = true; b._switching = true; });
+
+        AppState.listInterval = btn.dataset.interval;
+        await Storage.setListInterval(AppState.listInterval);
+        allBtns.forEach(b => b.classList.toggle('active', b === btn));
+
+        await _intervalSwitch(AppState.listInterval);
+
+        allBtns.forEach(b => { b.disabled = false; b._switching = false; });
+      });
+    });
+  }
+
   AppState.candleCount = 52;
 }
 
@@ -667,32 +690,21 @@ async function _intervalSwitch(interval) {
     if (analyzed.name) _fixStockNameIfNeeded(allStocks[i].code, analyzed.name);
   });
 
-  // ② 미리보기 우선 렌더
-  if (AppState.previewCode) {
-    if (dataMap.has(AppState.previewCode)) {
-      // 탭에 있는 종목 → 배치 결과에서 바로 렌더
-      const analyzed = dataMap.get(AppState.previewCode);
-      AppState.previewData = analyzed;
-      renderPreview(analyzed);
-    } else {
-      // 탭에 없는 종목 (검색 결과) → 별도 1회 조회
-      try {
-        const raw = await API.fetchStock(AppState.previewCode, AppState.candleCount, interval);
-        const analyzed = Indicators.analyzeAll(raw);
-        AppState.previewData = analyzed;
-        renderPreview(analyzed);
-      } catch (e) {
-        console.warn('[interval-switch] 미리보기 조회 실패:', e.message);
-      }
-    }
-  }
-
   // ③ 리스트 순차 렌더
   allStocks.forEach(s => _refreshListItem(s.code));
   // watchData → AppState.fundamentals 동기화 (펀더멘털·섹터 표시)
   _syncFundamentalsFromWatchData();
   setLastUpdated();
   renderList();
+
+  // 리스트 토글 시 미리보기 화면이 같은 종목을 열고 있고,
+  // 구간 설정이 맞춰진 상태라면 미리보기도 새 데이터로 덮어쓰기
+  if (AppState.previewCode && dataMap.has(AppState.previewCode)) {
+    if (AppState.previewInterval === interval) {
+      AppState.previewData = dataMap.get(AppState.previewCode);
+      renderPreview(AppState.previewData);
+    }
+  }
 }
 
 /* ══════════════════════════════════════════════
@@ -1564,12 +1576,12 @@ function initSchedulerStatus() {
       if (!res.ok) return;
       const data = await res.json();
 
-      statusEl.style.display = 'inline-flex';
-
       if (data.is_running) {
+        statusEl.style.display = 'inline-flex';
         statusEl.classList.add('running');
         timeEl.textContent = '업데이트 진행 중...';
       } else if (data.next_run) {
+        statusEl.style.display = 'none';
         statusEl.classList.remove('running');
         const match = data.next_run.match(/(\d{2}:\d{2})/);
         const timeStr = match ? match[1] : data.next_run;

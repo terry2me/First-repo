@@ -180,6 +180,14 @@ def init_db():
         )
     """)
 
+    # ── 한국 주식(코스피/코스닥) 종목명 맵핑 ─────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS kr_stock_names (
+            code TEXT PRIMARY KEY,
+            name_kr TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
     conn.close()
     print("[DB] 초기화 완료:", DB_PATH)
@@ -590,6 +598,14 @@ def db_get_fundamentals(ticker: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
+def db_get_kr_name(code: str) -> Optional[str]:
+    conn = get_db()
+    c = code.upper().replace(".KS", "").replace(".KQ", "")
+    row = conn.execute("SELECT name_kr FROM kr_stock_names WHERE code=?", (c,)).fetchone()
+    conn.close()
+    return row["name_kr"] if row else None
+
+
 # ══════════════════════════════════════════════════════════
 #  핵심 조회 로직
 # ══════════════════════════════════════════════════════════
@@ -727,6 +743,12 @@ def build_response(ticker: str, market: str, interval: str, candle_count: int) -
 
     # 종목명
     name = (meta or {}).get("name", ticker)
+
+    if not is_us:
+        # 한국 주식이면 DB에서 한글명 찾아서 덮어쓰기
+        kr_name = db_get_kr_name(ticker)
+        if kr_name:
+            name = kr_name
 
     # 코드 정제
     code = ticker.replace(".KS", "").replace(".KQ", "")
@@ -918,6 +940,30 @@ def _collect_all_stocks() -> list[dict]:
     return result
 
 
+def _update_kr_names_job():
+    """백그라운드에서 fdr을 이용해 한국 종목을 최신화합니다."""
+    try:
+        import FinanceDataReader as fdr
+        print("[update_kr_names] KRX 종목명 자동 업데이트 시작...")
+        df_krx = fdr.StockListing('KRX-DESC')
+
+        records = []
+        if not df_krx.empty:
+            for _, row in df_krx.iterrows():
+                code = str(row['Code']).strip()
+                name = str(row['Name']).strip()
+                if code and name: records.append((code, name))
+        
+        if records:
+            conn = get_db()
+            conn.executemany("INSERT OR REPLACE INTO kr_stock_names (code, name_kr) VALUES (?, ?)", records)
+            conn.commit()
+            conn.close()
+            print(f"[update_kr_names] 완료. {len(records)}건의 종목명 갱신")
+    except Exception as e:
+        print(f"[update_kr_names] 업데이트 실패: {e}")
+
+
 async def _scheduled_daily_refresh():
     """APScheduler 가 매일 04:00 KST 에 호출하는 자동 업데이트 함수"""
     now_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M KST")
@@ -938,6 +984,7 @@ async def _scheduled_daily_refresh():
     # 1d, 1wk 순차 실행 (각각 스레드 블로킹 허용 — 백그라운드 태스크 안에서 실행됨)
     import asyncio
     loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _update_kr_names_job)
     await loop.run_in_executor(None, _do_refresh, stocks, "1d",  200)
     await loop.run_in_executor(None, _do_refresh, stocks, "1wk", 100)
 
