@@ -1,0 +1,25 @@
+# BB Monitor
+#
+#   fastapi
+#   uvicorn
+#   pydantic
+#   yfinance
+#   requests
+#   APScheduler
+#   tzdata
+#
+
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+
+
+yfinance>=0.2.50
+requests>=2.31.0
+
+
+APScheduler>=3.10.0
+
+
+tzdata>=2024.1

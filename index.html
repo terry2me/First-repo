@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>📈 볼린저 밴드 주식 모니터</title>
+  <link rel="stylesheet" href="css/style.css?v=20260228" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ===== 관심종목 (단일 화면) ===== -->
+  <div class="app-tab-content" id="tab-watchlist">
+    <main class="main-layout">
+
+      <!-- ===== LEFT PANEL ===== -->
+      <section class="panel panel-left">
+
+        <!-- ── 검색 + 일봉/주봉 한 줄 ── -->
+        <div class="search-box">
+          <input type="text" id="stockInput" class="stock-input"
+                 placeholder="005930 또는 AAPL, TSLA..." maxlength="10" />
+          <button class="btn-search" id="btnSearch">
+            <i class="fas fa-search"></i> 조회
+          </button>
+          <button class="btn-register" id="btnRegister" style="display:none;" disabled>
+            <i class="fas fa-plus-circle"></i> 등록
+          </button>
+          <div class="search-box-sep"></div>
+          <div class="interval-toggle" id="intervalToggle">
+            <button class="interval-btn active" data-interval="1d">
+              <i class="fas fa-chart-bar"></i> 일봉
+            </button>
+            <button class="interval-btn" data-interval="1wk">
+              <i class="fas fa-chart-area"></i> 주봉
+            </button>
+          </div>
+        </div>
+
+        <!-- ── 미리보기 카드 ── -->
+        <div class="preview-card" id="previewCard" style="display:none;">
+
+          <!-- 상단 정보 행 (종목명/가격/등락 + BB바) 가로 배치 -->
+          <div class="preview-top-row">
+
+            <!-- 좌: 종목 정보 -->
+            <div class="preview-info-col">
+              <div class="preview-name-wrap">
+                <span class="preview-alert" id="previewAlert"></span>
+                <span class="preview-name" id="previewName">--</span>
+                <span class="preview-code" id="previewCode">--</span>
+                <span class="preview-interval-badge" id="previewIntervalBadge">일봉</span>
+                <span class="preview-sector-badge" id="previewSectorBadge" style="display:none;"></span>
+              </div>
+              <div class="preview-price-line">
+                <span class="preview-price" id="previewPrice">--</span>
+                <span class="preview-chg-group">
+                  <span class="preview-chg-label">금일</span>
+                  <span class="preview-today-chg" id="previewTodayChange">--</span>
+                  <span class="preview-chg-sep">|</span>
+                  <span class="preview-chg-label" id="previewPeriodLabel">기간</span>
+                  <span class="preview-change" id="previewChange">--</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- 우: BB 위치 바 + % 거리 -->
+            <div class="preview-bb-col">
+              <div class="bb-bar-wrap">
+                <div class="bb-bar-track">
+                  <div class="bb-bar-fill" id="previewBBFill"></div>
+                  <div class="bb-bar-marker" id="previewBBMarker"></div>
+                  <div class="bb-middle-line"></div>
+                </div>
+                <div class="bb-pct-row">
+                  <span class="bb-pct-item bb-pct-lower">
+                    <span class="bb-pct-label">하단</span>
+                    <span class="bb-pct-price" id="previewBBLowerPrice">--</span>
+                    <span class="bb-pct-val" id="previewBBLowerPct">--</span>
+                  </span>
+                  <span class="bb-pct-item bb-pct-middle">
+                    <span class="bb-pct-label">중단</span>
+                    <span class="bb-pct-price" id="previewBBMiddlePrice">--</span>
+                    <span class="bb-pct-val" id="previewBBMiddlePct">--</span>
+                  </span>
+                  <span class="bb-pct-item bb-pct-upper">
+                    <span class="bb-pct-label">상단</span>
+                    <span class="bb-pct-price" id="previewBBUpperPrice">--</span>
+                    <span class="bb-pct-val" id="previewBBUpperPct">--</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div><!-- /.preview-top-row -->
+
+          <!-- 상관관계 섹션: 현재가↔차트 사이 -->
+          <div class="corr-section" id="corrSection" style="display:none;"></div>
+
+          <!-- 차트 묶음: 캔들 + EOM + RSI (바짝 붙임) -->
+          <div class="chart-stack">
+            <div class="mini-chart-wrap">
+              <div id="previewChart" class="mini-chart"></div>
+            </div>
+            <div id="eomSection" style="display:none;">
+              <div id="eomChart" class="eom-chart"></div>
+            </div>
+            <div id="rsiStochSection" style="display:none;">
+              <div id="rsiStochChart" class="rsi-stoch-chart"></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 에러 -->
+        <div class="search-error" id="searchError" style="display:none;">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span id="searchErrorMsg">종목을 찾을 수 없습니다.</span>
+        </div>
+
+        <!-- 로딩 -->
+        <div class="loading-wrap" id="searchLoading" style="display:none;">
+          <div class="spinner"></div>
+          <span>데이터 조회 중...</span>
+        </div>
+      </section>
+
+      <!-- ===== RIGHT PANEL ===== -->
+      <section class="panel panel-right">
+
+        <!-- 그룹 탭 바 -->
+        <div class="tab-bar" id="tabBar">
+          <div class="tab-list" id="tabList"></div>
+          <button class="btn-add-tab" id="btnAddTab" title="그룹 추가">
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
+
+        <!-- 패널 헤더 (이동/복사/삭제 + 새로고침) -->
+        <div class="panel-header">
+          <h2>
+            <i class="fas fa-list-ul"></i>
+            등록 종목 <span class="stock-count" id="stockCount">0</span>
+            <span id="schedulerStatus" class="scheduler-status" style="display:none;" title="자동 업데이트 스케줄러">
+              <i class="fas fa-clock"></i> <span id="schedulerTime">--</span>
+            </span>
+          </h2>
+          <div class="panel-header-actions">
+            <button class="btn-sp500" id="btnSP500" title="S&amp;P500 종목 동기화">
+              <i class="fas fa-chart-line"></i> S&amp;P
+            </button>
+            <button class="btn-refresh" id="btnRefresh">
+              <i class="fas fa-sync-alt"></i> 새로고침
+            </button>
+            <button class="btn-order" id="btnMoveTop" disabled title="선택 종목을 맨 위로">
+              <i class="fas fa-angle-double-up"></i>
+            </button>
+            <button class="btn-order" id="btnMoveUp" disabled title="선택 종목을 위로">
+              <i class="fas fa-angle-up"></i>
+            </button>
+            <button class="btn-order" id="btnMoveDown" disabled title="선택 종목을 아래로">
+              <i class="fas fa-angle-down"></i>
+            </button>
+            <button class="btn-order" id="btnMoveBot" disabled title="선택 종목을 맨 아래로">
+              <i class="fas fa-angle-double-down"></i>
+            </button>
+            <button class="btn-move-selected" id="btnMoveSelected" disabled title="선택 종목을 다른 그룹으로 이동">
+              <i class="fas fa-arrow-right"></i> 이동
+            </button>
+            <button class="btn-copy-selected" id="btnCopySelected" disabled title="선택 종목을 다른 그룹으로 복사">
+              <i class="fas fa-copy"></i> 복사
+            </button>
+            <button class="btn-delete-selected" id="btnDeleteSelected" disabled>
+              <i class="fas fa-trash-alt"></i> 삭제
+            </button>
+          </div>
+        </div>
+
+        <!-- 헤더+리스트 공통 가로스크롤 래퍼 -->
+        <div class="list-scroll-wrap">
+
+        <!-- 컬럼 헤더 -->
+        <div class="list-header" id="listHeader">
+          <div class="col-check"><input type="checkbox" id="checkAll" /></div>
+          <div class="col-header col-alert" data-col-id="alert">
+            <span class="sort-col" data-col="alert">경고<span class="sort-icon" id="sort-alert"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="alert"></div>
+          </div>
+          <div class="col-header col-name" data-col-id="name">
+            <span class="sort-col" data-col="name">종목명<span class="sort-icon" id="sort-name"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="name"></div>
+          </div>
+          <div class="col-header col-price" data-col-id="price">
+            <span class="sort-col" data-col="price">현재가<span class="sort-icon" id="sort-price"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="price"></div>
+          </div>
+          <div class="col-header col-today-chg" data-col-id="todayChg">
+            <span class="sort-col" data-col="todayChg">금일등락<span class="sort-icon" id="sort-todayChg"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="todayChg"></div>
+          </div>
+          <div class="col-header col-change" data-col-id="change">
+            <span class="sort-col" data-col="change">기간등락<span class="sort-icon" id="sort-change"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="change"></div>
+          </div>
+          <div class="col-header col-bb" data-col-id="bbRatio">
+            <span class="sort-col" data-col="bbRatio">BB위치<span class="sort-icon" id="sort-bbRatio"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="bbRatio"></div>
+          </div>
+          <div class="col-header col-trail-pe" data-col-id="trailPE">
+            <span class="sort-col" data-col="trailPE">PER<span class="sort-icon" id="sort-trailPE"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="trailPE"></div>
+          </div>
+          <div class="col-header col-forward-pe" data-col-id="forwardPE">
+            <span class="sort-col" data-col="forwardPE">ForwardPE<span class="sort-icon" id="sort-forwardPE"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="forwardPE"></div>
+          </div>
+          <div class="col-header col-pbr" data-col-id="pbr">
+            <span class="sort-col" data-col="pbr">PBR<span class="sort-icon" id="sort-pbr"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="pbr"></div>
+          </div>
+          <div class="col-header col-ev-ebitda" data-col-id="evEbitda">
+            <span class="sort-col" data-col="evEbitda">EV/EBITDA<span class="sort-icon" id="sort-evEbitda"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="evEbitda"></div>
+          </div>
+          <div class="col-header col-div-yield" data-col-id="divYield">
+            <span class="sort-col" data-col="divYield">배당<span class="sort-icon" id="sort-divYield"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="divYield"></div>
+          </div>
+          <div class="col-header col-eps" data-col-id="eps">
+            <span class="sort-col" data-col="eps">EPS<span class="sort-icon" id="sort-eps"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="eps"></div>
+          </div>
+          <div class="col-header col-beta" data-col-id="beta">
+            <span class="sort-col" data-col="beta">Beta<span class="sort-icon" id="sort-beta"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="beta"></div>
+          </div>
+          <div class="col-header col-sector" data-col-id="sector">
+            <span class="sort-col" data-col="sector">섹터<span class="sort-icon" id="sort-sector"><i class="fas fa-sort"></i></span></span>
+            <div class="col-resizer" data-col="sector"></div>
+          </div>
+          <div class="col-header col-action">상세</div>
+        </div>
+
+        <!-- 종목 리스트 -->
+        <div class="stock-list" id="stockList"></div>
+
+        <!-- 빈 상태 메시지 (stockList 형제 — DOM 오염 방지) -->
+        <div class="empty-state" id="emptyState" style="display:none;">
+          <i class="fas fa-chart-line"></i>
+          <p>등록된 종목이 없습니다.</p>
+          <p class="empty-hint">좌측에서 종목코드를 입력하고 등록하세요.</p>
+        </div>
+
+        </div><!-- /.list-scroll-wrap -->
+
+        <!-- 로딩 오버레이 -->
+        <div class="list-loading" id="listLoading" style="display:none;">
+          <div class="spinner"></div>
+          <span>새로고침 중...</span>
+        </div>
+      </section>
+
+    </main>
+  </div><!-- /#tab-watchlist -->
+
+
+  <!-- 전역 로딩 -->
+  <div id="globalLoading" class="global-loading" style="display:none;">
+    <div class="global-loading-box">
+      <div class="spinner"></div>
+      <span>데이터 불러오는 중...</span>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- 탭 이름 편집 인라인 인풋 (숨김) -->
+  <input type="text" id="tabRenameInput" class="tab-rename-input" style="display:none;" maxlength="12" />
+
+  <!-- 차트 모달 -->
+  <div class="modal-overlay" id="chartModal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitle">종목 상세 차트</h3>
+        <button class="modal-close" id="modalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="modalChart" style="width:100%; height:480px;"></div>
+    </div>
+  </div>
+
+  <script src="js/config.js?v=20260228"></script>
+  <script src="js/storage.js?v=20260228"></script>
+  <script src="js/api.js?v=20260228"></script>
+  <script src="js/indicators.js?v=20260228"></script>
+  <script src="js/charts.js?v=20260228"></script>
+  <script src="js/app.js?v=20260228"></script>
+
+</body>
+</html>
