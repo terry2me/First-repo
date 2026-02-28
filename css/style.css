@@ -76,7 +76,8 @@ body {
 
 
 /* ── 일봉/주봉 토글 ── */
-.interval-toggle {
+.interval-toggle,
+.list-interval-toggle {
   display: flex;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -172,6 +173,62 @@ body {
 }
 
 .btn-sp500:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* Nasdaq 동기화 버튼 */
+.btn-nasdaq {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  background: #0ea5e9;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 12px;
+  font-family: var(--font);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+
+.btn-nasdaq:hover {
+  background: #0284c7;
+  box-shadow: 0 0 10px rgba(14, 165, 233, .35);
+}
+
+.btn-nasdaq:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+/* 코스피 동기화 버튼 */
+.btn-kospi {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  background: #ef4444;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 12px;
+  font-family: var(--font);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+
+.btn-kospi:hover {
+  background: #dc2626;
+  box-shadow: 0 0 10px rgba(239, 68, 68, .35);
+}
+
+.btn-kospi:disabled {
   opacity: .6;
   cursor: not-allowed;
 }

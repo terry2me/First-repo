@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>📈 볼린저 밴드 주식 모니터</title>
-  <link rel="stylesheet" href="css/style.css?v=20260228_1" />
+  <link rel="stylesheet" href="css/style.css?v=20260228_2" />
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap"
@@ -150,8 +150,22 @@
             </span>
           </h2>
           <div class="panel-header-actions">
+            <div class="list-interval-toggle" id="listIntervalToggle">
+              <button class="list-interval-btn active" data-interval="1d">
+                <i class="fas fa-chart-bar"></i> 일봉
+              </button>
+              <button class="list-interval-btn" data-interval="1wk">
+                <i class="fas fa-chart-area"></i> 주봉
+              </button>
+            </div>
             <button class="btn-sp500" id="btnSP500" title="S&amp;P500 종목 동기화">
               <i class="fas fa-chart-line"></i> S&amp;P
+            </button>
+            <button class="btn-nasdaq" id="btnNasdaq" title="Nasdaq 100 종목 동기화">
+              <i class="fas fa-chart-line"></i> Nasdaq
+            </button>
+            <button class="btn-kospi" id="btnKospi" title="코스피 200 종목 동기화">
+              <i class="fas fa-chart-line"></i> 코스피
             </button>
             <button class="btn-refresh" id="btnRefresh">
               <i class="fas fa-sync-alt"></i> 새로고침
