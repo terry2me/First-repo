@@ -26,15 +26,12 @@ import uuid
 import json
 import asyncio
 import concurrent.futures
-from contextlib import asynccontextmanager
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, Any
 from zoneinfo import ZoneInfo
 
 import yfinance as yf
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,30 +43,7 @@ BASE_DIR = Path(__file__).parent
 DB_PATH  = BASE_DIR / "stock.db"
 
 # ── FastAPI 앱 ─────────────────────────────────────────────
-_scheduler_instance = None
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """앱 시작 시 스케줄러 등록, 종료 시 정리"""
-    global _scheduler_instance
-    scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-    _scheduler_instance = scheduler
-    
-    scheduler.add_job(
-        _scheduled_daily_refresh,
-        CronTrigger(hour=4, minute=0, timezone="Asia/Seoul"),
-        id="daily_refresh",
-        replace_existing=True,
-    )
-    scheduler.start()
-    next_run = scheduler.get_job("daily_refresh").next_run_time
-    print(f"[scheduler] 시작 완료 - 다음 실행: {next_run.strftime('%Y-%m-%d %H:%M %Z')}".encode('utf-8', 'replace').decode('utf-8', 'ignore'))
-    yield
-    scheduler.shutdown(wait=False)
-    print("[scheduler] 종료")
-
-
-app = FastAPI(title="BB Monitor API", lifespan=lifespan)
+app = FastAPI(title="BB Monitor API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -81,16 +55,6 @@ app.add_middleware(
 # ── 타임존 ─────────────────────────────────────────────────
 TZ_KST = ZoneInfo("Asia/Seoul")
 TZ_EST = ZoneInfo("America/New_York")
-
-# ── 새로고침 진행 상태 (전역) ──────────────────────────────
-refresh_status: dict[str, Any] = {
-    "running": False,
-    "total": 0,
-    "done": 0,
-    "errors": [],
-    "last_finished": None,
-}
-refresh_lock = threading.Lock()
 
 # ── ThreadPoolExecutor (batch 병렬 처리용) ────────────────────────
 _executor = concurrent.futures.ThreadPoolExecutor(max_workers=20)
@@ -676,14 +640,14 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
     meta = db_get_meta(ticker)
     fund = db_get_fundamentals(ticker)
 
-    # 펀더멘털 갱신 필요 여부 판단 (마지막 거래일 1회)
+    # 펀더멘털 갱신 필요 여부 판단 (이번 달 기준 1회 캐싱 - 펀더멘털은 자주 변하지 않음)
     need_fund = force or fund is None
     if fund and fund.get("fetched_at"):
         try:
             fetched = datetime.fromisoformat(fund["fetched_at"])
-            last_trading = get_last_trading_date(market)
-            fetched_date = fetched.strftime("%Y-%m-%d")
-            if fetched_date >= last_trading:
+            now_dt = datetime.now()
+            # 연도와 월이 일치하면 갱신하지 않음
+            if fetched.year == now_dt.year and fetched.month == now_dt.month:
                 need_fund = False
             else:
                 need_fund = True
@@ -937,209 +901,6 @@ async def refresh_tab_stocks(req: BatchRequest):
     return {"results": results}
 
 
-def _do_refresh(stocks: list[dict], interval: str, candle_count: int):
-    """백그라운드에서 순차 실행 (0.5초 딜레이)"""
-    global refresh_status
-
-    with refresh_lock:
-        refresh_status["running"]  = True
-        refresh_status["total"]    = len(stocks)
-        refresh_status["done"]     = 0
-        refresh_status["errors"]   = []
-
-    for s in stocks:
-        market = s.get("market") or resolve_market(s["code"])
-        ticker = resolve_ticker(s["code"], market)
-        try:
-            ensure_prices(ticker, market, interval)
-            ensure_meta_and_fundamentals(ticker, market)
-            print(f"[refresh] {ticker} 완료")
-        except Exception as e:
-            err = f"{ticker}: {str(e)}"
-            print(f"[refresh] 오류 {err}")
-            with refresh_lock:
-                refresh_status["errors"].append(err)
-
-        with refresh_lock:
-            refresh_status["done"] += 1
-
-        time.sleep(0.5)  # yfinance 블럭 방지
-
-    with refresh_lock:
-        refresh_status["running"]       = False
-        refresh_status["last_finished"] = datetime.now().isoformat()
-
-    print(f"[refresh] 완료: {len(stocks)}종목")
-
-
-# ══════════════════════════════════════════════════════════
-#  스케줄러 — 매일 04:00 KST 자동 전체 업데이트
-# ══════════════════════════════════════════════════════════
-
-def _collect_all_stocks() -> list[dict]:
-    """bb_tabs 에 등록된 모든 탭의 고유 종목 합집합 반환"""
-    tabs = _kv_get_all("bb_tabs")
-    seen: set[str] = set()
-    result: list[dict] = []
-    for tab in tabs:
-        try:
-            stocks = json.loads(tab.get("stocks", "[]"))
-        except Exception:
-            continue
-        for s in stocks:
-            code = s.get("code", "").strip()
-            if code and code not in seen:
-                seen.add(code)
-                result.append({
-                    "code":   code,
-                    "market": s.get("market", "US"),
-                })
-    return result
-
-
-def _update_kr_names_job():
-    """백그라운드에서 fdr을 이용해 한국 종목을 최신화합니다."""
-    try:
-        import FinanceDataReader as fdr
-        print("[update_kr_names] KRX 종목명 자동 업데이트 시작...")
-        df_krx = fdr.StockListing('KRX-DESC')
-
-        records = []
-        if not df_krx.empty:
-            for _, row in df_krx.iterrows():
-                code = str(row['Code']).strip()
-                name = str(row['Name']).strip()
-                if code and name: records.append((code, name))
-        
-        if records:
-            conn = get_db()
-            conn.executemany("INSERT OR REPLACE INTO kr_stock_names (code, name_kr) VALUES (?, ?)", records)
-            conn.commit()
-            conn.close()
-            print(f"[update_kr_names] 완료. {len(records)}건의 종목명 갱신")
-    except Exception as e:
-        print(f"[update_kr_names] 업데이트 실패: {e}")
-
-
-def _calc_and_save_correlations():
-    """DB에 저장된 모든 종목(1d)의 수익률 상관계수를 일괄 계산해 저장한다."""
-    conn = get_db()
-    try:
-        import pandas as pd
-        df = pd.read_sql_query("SELECT ticker, date, close FROM stock_prices WHERE interval='1d'", conn)
-        if df.empty:
-            return
-        
-        # 피벗 테이블 생성 및 등락률 변환
-        pivot = df.pivot(index='date', columns='ticker', values='close')
-        returns = pivot.pct_change(fill_method=None).dropna(how='all')
-        if returns.empty:
-            return
-        
-        corr_matrix = returns.corr()
-        # 공통 데이터 포인트 개수 계산 (N x N 행렬)
-        valid_mask = returns.notna().astype(int)
-        counts_matrix = valid_mask.T @ valid_mask
-        
-        records = []
-        now_iso = datetime.now().isoformat()
-        tickers = corr_matrix.columns
-        for t in tickers:
-            # 해당 종목 t와 다른 종목들 간의 상관계수 및 공통 데이터 수
-            # 최소 20일 이상의 공통 데이터가 있는 종목만 후보로 함
-            c_serie = corr_matrix[t]
-            n_serie = counts_matrix[t]
-            
-            # 자기 자신 제외 및 데이터 부족 종목 제외 (최소 20일)
-            mask = (c_serie.index != t) & (n_serie >= 20)
-            valid_candidates = c_serie[mask].dropna()
-            
-            if valid_candidates.empty:
-                continue
-            
-            s_sorted = valid_candidates.sort_values(ascending=False)
-            pos_code = s_sorted.index[0]
-            pos_val = float(s_sorted.iloc[0])
-            
-            neg_code = s_sorted.index[-1]
-            neg_val = float(s_sorted.iloc[-1])
-            
-            # Neutral(중) 선정 로직 개선:
-            # 1. 절대값이 0.1 미만인 종목들 중 공통 데이터(n_serie)가 가장 많은 것을 우선 선택
-            # 2. 그런 종목이 없으면 단순히 절대값 최소인 것 선택
-            neu_pool = valid_candidates.drop([pos_code, neg_code], errors='ignore')
-            if not neu_pool.empty:
-                low_corr = neu_pool[neu_pool.abs() < 0.1]
-                if not low_corr.empty:
-                    # 데이터 포인트가 많은 순으로 정렬하여 첫 번째 선택
-                    neu_idx = n_serie[low_corr.index].idxmax()
-                    neu_code = neu_idx
-                    neu_val = float(neu_pool.loc[neu_idx])
-                else:
-                    neu_idx = neu_pool.abs().idxmin()
-                    neu_code = neu_idx
-                    neu_val = float(neu_pool.loc[neu_idx])
-            else:
-                neu_code = pos_code
-                neu_val = pos_val
-            
-            # '.KS', '.KQ' 제거하여 클라이언트 코드와 일치
-            def clean_code(c):
-                return c.replace('.KS', '').replace('.KQ', '').zfill(6) if '.KS' in c or '.KQ' in c else c
-                
-            records.append((
-                clean_code(t), 
-                clean_code(pos_code), pos_val, 
-                clean_code(neu_code), neu_val, 
-                clean_code(neg_code), neg_val, 
-                now_iso
-            ))
-            
-        c = conn.cursor()
-        c.execute("DELETE FROM stock_correlations")
-        c.executemany("""
-            INSERT INTO stock_correlations 
-            (target_code, pos_code, pos_val, neu_code, neu_val, neg_code, neg_val, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, records)
-        conn.commit()
-        print(f"[scheduler] 상관관계 계산 완료: {len(records)}종목")
-    except Exception as e:
-        print(f"[scheduler] 상관관계 계산 실패: {e}")
-    finally:
-        conn.close()
-
-async def _scheduled_daily_refresh():
-    """APScheduler 가 매일 04:00 KST 에 호출하는 자동 업데이트 함수"""
-    now_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M KST")
-    print(f"[scheduler] 자동 업데이트 시작 — {now_kst}")
-
-    # 이미 수동 새로고침이 실행 중이면 스킵
-    if refresh_status["running"]:
-        print("[scheduler] refresh 진행 중 → 스킵")
-        return
-
-    stocks = _collect_all_stocks()
-    if not stocks:
-        print("[scheduler] 등록된 종목 없음 → 스킵")
-        return
-
-    print(f"[scheduler] 대상 종목: {len(stocks)}개 / 1d + 1wk")
-
-    # 1d, 1wk 순차 실행 (각각 스레드 블로킹 허용 — 백그라운드 태스크 안에서 실행됨)
-    import asyncio
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _update_kr_names_job)
-    await loop.run_in_executor(None, _do_refresh, stocks, "1d",  200)
-    await loop.run_in_executor(None, _do_refresh, stocks, "1wk", 100)
-    await loop.run_in_executor(None, _calc_and_save_correlations)
-
-    fin_kst = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M KST")
-    print(f"[scheduler] 자동 업데이트 완료 — {fin_kst} / {len(stocks)}종목")
-
-
-
-
 # ══════════════════════════════════════════════════════════
 #  /api/config — 탭 + 설정 전담 (GET: 읽기, POST: 쓰기)
 # ══════════════════════════════════════════════════════════
@@ -1213,17 +974,9 @@ async def config_post(req: ConfigRequest):
 # ── 헬스 체크 ─────────────────────────────────────────────
 @app.get("/api/health")
 async def health():
-    next_run = None
-    if _scheduler_instance:
-        job = _scheduler_instance.get_job("daily_refresh")
-        if job and job.next_run_time:
-            next_run = job.next_run_time.strftime("%Y-%m-%d %H:%M %Z")
-
     return {
         "ok": True, 
         "time": datetime.now().isoformat(),
-        "next_run": next_run,
-        "is_running": refresh_status["running"]
     }
 
 
@@ -1371,6 +1124,26 @@ async def nasdaq100_sync():
 @app.post("/api/kospi200/sync")
 async def kospi200_sync():
     return _sync_index("코스피", _fetch_kospi200_tickers)
+
+@app.post("/api/correlations/sync")
+async def correlations_sync():
+    def _run_correlations():
+        import subprocess
+        # 비동기 상황에서 스레딩/프로세스 블락이 생길 수 있으므로 스크립트 실행으로 위임
+        try:
+            subprocess.run(["python", str(BASE_DIR / "calculate_correlations.py")], check=True)
+            return True
+        except subprocess.CalledProcessError:
+            return False
+            
+    loop = asyncio.get_event_loop()
+    success = await loop.run_in_executor(_executor, _run_correlations)
+    
+    if success:
+        return {"ok": True, "message": "Correlations updated"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to calculate correlations")
+
 
 
 # ── 정적 파일 서빙 (HTML/CSS/JS) ───────────────────────────

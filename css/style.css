@@ -357,26 +357,6 @@ body {
   margin-left: 4px;
 }
 
-.scheduler-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 8px;
-  padding: 2px 8px;
-  background: rgba(52, 211, 153, .15);
-  border: 1px solid rgba(52, 211, 153, .4);
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #34d399;
-}
-
-.scheduler-status.running {
-  background: rgba(245, 158, 11, .15);
-  border-color: rgba(245, 158, 11, .4);
-  color: #fbbf24;
-}
-
 /* ══ 탭 바 ══ */
 .tab-bar {
   display: flex;

@@ -543,7 +543,11 @@ async function _bgRefreshStock(input, registeredCode) {
       _refreshListItem(code);
       _fixStockNameIfNeeded(code, analyzed.name);
     }
-    // ※ 미리보기는 건드리지 않음 — 미리보기는 doSearch(previewInterval 기준)에서 관리
+    // 목록과 미리보기가 동일한 종목, 동일한 조건(일봉/주봉)을 표시 중이라면 미리보기도 갱신 (데이터 불일치 버그 수정)
+    if (AppState.previewCode === code && AppState.previewInterval === AppState.listInterval) {
+      AppState.previewData = analyzed;
+      renderPreview(analyzed);
+    }
   } catch (_) {
     // 백그라운드 실패 무시 (캐시 데이터로 이미 표시 중)
   }
@@ -626,19 +630,18 @@ async function _intervalSwitch(interval) {
 }
 
 /* ══════════════════════════════════════════════
-   우단 전체 새로고침
+   우단 전체 새로고침 (비동기 스텔스 갱신)
 ══════════════════════════════════════════════ */
-async function doRefreshAll() {
-  /* ── 새로고침 버튼 — 현재 탭 종목만 yfinance 포함 갱신 ── */
+async function doRefreshAll(btn) {
   const tabStocks = Storage.getWatchlist();   // 현재 탭 종목만
   if (!tabStocks.length) return;
 
-  const loadEl = document.getElementById('listLoading');
   const total = tabStocks.length;
   let done = 0;
-  const setMsg = msg => { const s = loadEl.querySelector('span'); if (s) s.textContent = msg; };
-  loadEl.style.display = 'flex';
-  setMsg(`데이터 로드 중... (0/${total})`);
+
+  // 모달 없음 (listLoading 제거) — 버튼 텍스트만 업데이트
+  btn.disabled = true;
+  btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 갱신 중... (0/${total})`;
 
   tabStocks.forEach(s => {
     if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
@@ -646,31 +649,60 @@ async function doRefreshAll() {
     }
   });
 
-  // POST /api/stock/refresh — 서버 순차 실행, yfinance 포함 (현재 탭 종목만)
+  // 비동기 실행 (await를 걸지만 모달이 없으므로 다른 탭 구경 가능)
+  // fetchRefresh 내부에서 1개씩 순차 처리됨 (api.js 참조)
   await API.fetchRefresh(tabStocks, AppState.candleCount, AppState.listInterval,
     (code, res, err) => {
       done++;
       if (res) {
         const analyzed = Indicators.analyzeAll(res);
         AppState.watchData[code] = analyzed;
-        _refreshListItem(code);
+        _refreshListItem(code); // 1개 완료 시 화면(행) 즉각 렌더링
         if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+
+        // 미리보기 화면에 켜져 있는 종목이었다면 미리보기도 같이 갱신
+        if (AppState.previewCode === code && AppState.previewInterval === AppState.listInterval) {
+          AppState.previewData = analyzed;
+          renderPreview(analyzed);
+        }
       } else {
         console.warn(`[${code}] 조회 실패:`, err?.message);
       }
-      setMsg(`데이터 로드 중... (${done}/${total})`);
+      // 진행률 UI 업데이트
+      btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (${done}/${total})`;
     }
   );
 
-  loadEl.style.display = 'none';
-  // watchData → AppState.fundamentals 동기화 (펀더멘털·섹터 표시)
+  btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 상관관계 분석 중...`;
+  try {
+    // 백그라운드 스크립트로 파이썬 상관관계 돌리기 (api 엔드포인트 호출)
+    const res = await fetch('/api/correlations/sync', { method: 'POST' });
+    if (res.ok) {
+      // 강제 리스트 리렌더 (상관관계 값이 반영됨)
+      // (API 엔드포인트는 아래서 구현해야함)
+    }
+  } catch (e) {
+    console.warn("상관관계 자동분석 실패:", e);
+  }
+
+  // 최종 완료 후 정리 (와치데이터 리렌더링)
   _syncFundamentalsFromWatchData();
   setLastUpdated();
+
+  // 변경된 DB 상관관계 데이터를 watchData에 다시 반영하기 위해 현재 탭 종목들의 메타를 다시 불러옴 (DB only)
+  await API.fetchBatch(tabStocks, AppState.candleCount, AppState.listInterval,
+    (code, res, err) => {
+      if (res && AppState.watchData[code]) {
+        AppState.watchData[code].correlations = res.correlations;
+      }
+    }
+  );
+
   renderList();
-  if (AppState.previewCode && AppState.watchData[AppState.previewCode]) {
-    AppState.previewData = AppState.watchData[AppState.previewCode];
-    renderPreview(AppState.previewData);
-  }
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fas fa-sync-alt"></i> 새로고침';
+  showToast(`${total}개 종목 업데이트 완료`, 'success');
 }
 
 /* ── 펀더멘털 → AppState.fundamentals 동기화
@@ -1460,12 +1492,8 @@ function initMoveButtons() {
 function initRefreshBtn() {
   const btn = document.getElementById('btnRefresh');
   btn.addEventListener('click', async () => {
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> 새로고침 중...';
-    await doRefreshAll();
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-sync-alt"></i> 새로고침';
-    showToast('전체 종목 업데이트 완료', 'success');
+    // 버튼 상태 제어는 doRefreshAll 안에서 비동기로 처리됨
+    doRefreshAll(btn); // await 하지 않음 (fire and forget)
   });
 }
 
@@ -1512,42 +1540,6 @@ function initIndexSyncBtn(btnId, apiUrl, tabName, htmlContent) {
 }
 
 /* ══════════════════════════════════════════════
-   스케줄러 상태 (Health 체크)
-══════════════════════════════════════════════ */
-function initSchedulerStatus() {
-  const statusEl = document.getElementById('schedulerStatus');
-  const timeEl = document.getElementById('schedulerTime');
-  if (!statusEl || !timeEl) return;
-
-  const updateStatus = async () => {
-    try {
-      const res = await fetch('/api/health');
-      if (!res.ok) return;
-      const data = await res.json();
-
-      if (data.is_running) {
-        statusEl.style.display = 'inline-flex';
-        statusEl.classList.add('running');
-        timeEl.textContent = '업데이트 진행 중...';
-      } else if (data.next_run) {
-        statusEl.style.display = 'none';
-        statusEl.classList.remove('running');
-        const match = data.next_run.match(/(\d{2}:\d{2})/);
-        const timeStr = match ? match[1] : data.next_run;
-        timeEl.textContent = `다음 갱신: ${timeStr} KST`;
-      } else {
-        statusEl.style.display = 'none';
-      }
-    } catch (e) {
-      statusEl.style.display = 'none';
-    }
-  };
-
-  updateStatus();
-  setInterval(updateStatus, 60000); // 1분마다 갱신
-}
-
-/* ══════════════════════════════════════════════
    초기화
 ══════════════════════════════════════════════ */
 async function init() {
@@ -1569,7 +1561,6 @@ async function init() {
   initIndexSyncBtn('btnNasdaq', '/api/nasdaq100/sync', 'Nasdaq', '<i class="fas fa-chart-line"></i> Nasdaq');
   initIndexSyncBtn('btnKospi', '/api/kospi200/sync', '코스피', '<i class="fas fa-chart-line"></i> 코스피');
   initModal();
-  initSchedulerStatus();
 
   renderTabs();
   renderList();
