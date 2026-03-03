@@ -35,7 +35,7 @@ import yfinance as yf
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 # ── 경로 설정 ──────────────────────────────────────────────
@@ -1156,7 +1156,7 @@ async def root():
 
 @app.get("/favicon.ico")
 async def favicon():
-    return JSONResponse(status_code=204, content={})
+    return Response(status_code=204)
 
 
 # ══════════════════════════════════════════════════════════
