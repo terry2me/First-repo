@@ -421,7 +421,7 @@ function renderPreview(data) {
   // 금일 등락: 전일 종가 → 현재가
   const todayEl = document.getElementById('previewTodayChange');
   if (todayEl) {
-    todayEl.textContent = `${fmtChg(todayChange, isUS)} (${fmtPct(todayChangePct)})`;
+    todayEl.textContent = `${fmtPct(todayChangePct)} (${fmtChg(todayChange, isUS)})`;
     todayEl.className = 'preview-today-chg ' + (todayChange >= 0 ? 'up' : 'down');
   }
 
@@ -436,7 +436,7 @@ function renderPreview(data) {
   // 기간 등락: 기간 첫날 종가 → 현재가
   const chgEl = document.getElementById('previewChange');
   if (chgEl) {
-    chgEl.textContent = `${fmtChg(change, isUS)} (${fmtPct(changePct)})`;
+    chgEl.textContent = `${fmtPct(changePct)} (${fmtChg(change, isUS)})`;
     chgEl.className = 'preview-change ' + (change >= 0 ? 'up' : 'down');
   }
 
@@ -581,51 +581,81 @@ function showSearchLoading(v) { document.getElementById('searchLoading').style.d
    4. previewCode가 탭에 없으면 → POST /api/stock 1회 별도
 ══════════════════════════════════════════════ */
 async function _intervalSwitch(interval) {
-  // 전체 탭 종목 수집
-  const allCodes = new Set();
-  const allStocks = [];
+  // 1. 현재 활성 탭 종목 우선 분류
+  const activeStocks = Storage.getWatchlist();
+  const activeCodes = new Set(activeStocks.map(s => s.code));
+
+  // 2. 나머지 모든 탭 종목 수집
+  const otherStocks = [];
+  const seen = new Set(activeCodes);
   Storage.getTabs().forEach(tab => {
     tab.stocks.forEach(s => {
-      if (!allCodes.has(s.code)) { allCodes.add(s.code); allStocks.push(s); }
+      if (!seen.has(s.code)) {
+        seen.add(s.code);
+        otherStocks.push(s);
+      }
     });
   });
 
   // watchData 키 선점
-  allStocks.forEach(s => {
+  [...activeStocks, ...otherStocks].forEach(s => {
     if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
       AppState.watchData[s.code] = null;
     }
   });
 
-  // ① 배치 1회 조회 (DB only)
-  const batchResults = await API.fetchBatch(
-    allStocks, AppState.candleCount, interval, null  // onProgress 없이 배열로 받음
-  );
+  // 🚀 단계 1: 현재 탭 종목 즉시 전환 로드
+  if (activeStocks.length) {
+    console.log(`[Interval] 우선순위 로드: ${activeStocks.length}종목 (${interval})`);
+    const batchResults = await API.fetchBatch(activeStocks, AppState.candleCount, interval, null);
 
-  // code → analyzed 맵 구성
-  const dataMap = new Map();
-  batchResults.forEach((res, i) => {
-    if (!res) return;
-    const analyzed = Indicators.analyzeAll(res);
-    AppState.watchData[allStocks[i].code] = analyzed;
-    dataMap.set(allStocks[i].code, analyzed);
-    if (analyzed.name) _fixStockNameIfNeeded(allStocks[i].code, analyzed.name);
-  });
+    batchResults.forEach((res, i) => {
+      if (res) {
+        const analyzed = Indicators.analyzeAll(res);
+        const code = activeStocks[i].code;
+        AppState.watchData[code] = analyzed;
+        if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+      }
+    });
 
-  // ③ 리스트 순차 렌더
-  allStocks.forEach(s => _refreshListItem(s.code));
-  // watchData → AppState.fundamentals 동기화 (펀더멘털·섹터 표시)
-  _syncFundamentalsFromWatchData();
-  setLastUpdated();
-  renderList();
+    _syncFundamentalsFromWatchData();
+    setLastUpdated();
+    renderList(); // 현재 탭 즉시 갱신
 
-  // 리스트 토글 시 미리보기 화면이 같은 종목을 열고 있고,
-  // 구간 설정이 맞춰진 상태라면 미리보기도 새 데이터로 덮어쓰기
-  if (AppState.previewCode && dataMap.has(AppState.previewCode)) {
-    if (AppState.previewInterval === interval) {
-      AppState.previewData = dataMap.get(AppState.previewCode);
-      renderPreview(AppState.previewData);
+    // 미리보기 화면 동기화
+    if (AppState.previewCode && activeCodes.has(AppState.previewCode)) {
+      if (AppState.previewInterval === interval) {
+        const data = AppState.watchData[AppState.previewCode];
+        if (data) renderPreview(data);
+      }
     }
+  }
+
+  // 🚀 단계 2: 나머지 종목 백그라운드 분할 로드 (50개씩)
+  if (otherStocks.length) {
+    console.log(`[Interval] 백그라운드 로드 시작: ${otherStocks.length}종목`);
+    const CHUNK_SIZE = 50;
+
+    (async () => {
+      for (let i = 0; i < otherStocks.length; i += CHUNK_SIZE) {
+        const chunk = otherStocks.slice(i, i + CHUNK_SIZE);
+        const chunkResults = await API.fetchBatch(chunk, AppState.candleCount, interval, null);
+
+        chunkResults.forEach((res, j) => {
+          if (res) {
+            const analyzed = Indicators.analyzeAll(res);
+            const code = chunk[j].code;
+            AppState.watchData[code] = analyzed;
+            if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+          }
+        });
+
+        // 브라우저 렌더링을 위해 숨 고르기
+        await new Promise(r => setTimeout(r, 50));
+      }
+      _syncFundamentalsFromWatchData();
+      console.log(`[Interval] 모든 종목 전환 로드 완료`);
+    })();
   }
 }
 
@@ -650,7 +680,7 @@ async function doRefreshAll(btn) {
   });
 
   // 비동기 실행 (await를 걸지만 모달이 없으므로 다른 탭 구경 가능)
-  // fetchRefresh 내부에서 1개씩 순차 처리됨 (api.js 참조)
+  // fetchRefresh 내부에서 20개씩 배치 처리됨 (api.js 참조)
   await API.fetchRefresh(tabStocks, AppState.candleCount, AppState.listInterval,
     (code, res, err) => {
       done++;
@@ -751,6 +781,7 @@ function _fixStockNameIfNeeded(code, cleanName) {
    우단 리스트 렌더링
 ══════════════════════════════════════════════ */
 function renderList() {
+  syncColumnWidthsFromStorage();
   const watchlist = Storage.getWatchlist();
   const listEl = document.getElementById('stockList');
   const emptyEl = document.getElementById('emptyState');
@@ -796,13 +827,13 @@ function buildListItem(stock, data) {
 
   const priceStr = data ? fmtPrice(data.currentPrice, isUS) : '--';
 
-  // 금일 등락 (퍼센트만)
+  // 금일 등락 (퍼센트만 표시 - 원래대로 복구)
   const todayPctVal = data?.todayChangePct ?? 0;
   const todayChgVal = data?.todayChange ?? 0;
   const todayStr = data ? fmtPct(todayPctVal) : '--';
   const todayUpDown = data ? (todayChgVal >= 0 ? 'up' : 'down') : '';
 
-  // 기간 등락 (퍼센트만)
+  // 기간 등락 (퍼센트만 표시 - 원래대로 복구)
   const periodPctVal = data?.changePct ?? 0;
   const periodChgVal = data?.change ?? 0;
   const periodStr = data ? fmtPct(periodPctVal) : '--';
@@ -828,7 +859,11 @@ function buildListItem(stock, data) {
   }
 
   // 펀더멘털
-  const fd = AppState.fundamentals[stock.code] || {};
+  // 펀더멘털: 캐시된 데이터와 최신 API 데이터를 병합 (최신 데이터 우선)
+  const fd = {
+    ...(AppState.fundamentals[stock.code] || {}),
+    ...(data || {})
+  };
   const trailPE = fmtFundNum(fd.trailingPE);
   const forwardPE = fmtFundNum(fd.forwardPE);
   const pbrVal = fmtFundNum(fd.pbr);
@@ -956,7 +991,12 @@ function _refreshListItem(code) {
   }
 
   // 캔들 데이터 없어도 펀더멘털 컬럼은 항상 갱신
-  const fd = AppState.fundamentals[code] || {};
+  // 펀더멘털 데이터: 최신 watchData(data)를 우선 사용하고, 없으면 캐시된 fundamentals 사용
+  // 펀더멘털 데이터: 최신 watchData(data)를 우선 사용하고, 없으면 캐시된 fundamentals 사용
+  const fd = {
+    ...(AppState.fundamentals[code] || {}),
+    ...(data || {})
+  };
   const _setFund = (sel, val, cls) => {
     const el2 = el.querySelector(sel);
     if (!el2) return;
@@ -991,7 +1031,7 @@ function _refreshListItem(code) {
   const priceEl = el.querySelector('.col-price');
   if (priceEl) priceEl.innerHTML = `<span class="item-price">${fmtPrice(data.currentPrice, isUS)}</span>`;
 
-  // 금일 등락 (퍼센트만)
+  // 금일 등락 (원래대로 복구)
   const todayChgVal = data.todayChange ?? 0;
   const todayPctVal = data.todayChangePct ?? 0;
   const todayEl = el.querySelector('.col-today-chg');
@@ -1000,7 +1040,7 @@ function _refreshListItem(code) {
     todayEl.className = `col-today-chg ${todayChgVal >= 0 ? 'up' : 'down'}`;
   }
 
-  // 기간 등락 (퍼센트만)
+  // 기간 등락 (원래대로 복구)
   const periodChgVal = data.change ?? 0;
   const periodPctVal = data.changePct ?? 0;
   const chgEl = el.querySelector('.col-change');
@@ -1158,15 +1198,58 @@ function initColResizers() {
         document.documentElement.style.setProperty(v, Math.max(MIN[key] || 60, sw + ev.clientX - sx) + 'px');
         Charts.resizeAll();
       };
-      const up = () => {
+      const up = async () => {
         h.classList.remove('dragging');
         document.removeEventListener('mousemove', mv);
         document.removeEventListener('mouseup', up);
+
+        // 리사이즈 완료 시 모든 컬럼의 현재 '계산된' 너비 추출하여 저장
+        const activeTabId = Storage.getActiveTabId();
+        const widths = {};
+        const rootStyle = getComputedStyle(document.documentElement);
+
+        Object.entries(CSS).forEach(([k, varName]) => {
+          const val = rootStyle.getPropertyValue(varName).trim();
+          if (val) widths[k] = val;
+        });
+
+        await Storage.updateColumnWidths(activeTabId, widths);
       };
       document.addEventListener('mousemove', mv);
       document.addEventListener('mouseup', up);
     });
   });
+}
+
+/** 저장된 너비를 현재 탭 설정에서 불러와 적용 */
+function syncColumnWidthsFromStorage() {
+  const activeTab = Storage.getActiveTab();
+  if (!activeTab || !activeTab.column_widths) return;
+
+  const CSS_VARS = {
+    alert: '--col-alert', name: '--col-name', price: '--col-price',
+    todayChg: '--col-today-chg', change: '--col-change', bbRatio: '--col-bb',
+    trailPE: '--col-trail-pe', forwardPE: '--col-forward-pe', pbr: '--col-pbr',
+    evEbitda: '--col-ev-ebitda', divYield: '--col-div-yield', eps: '--col-eps',
+    beta: '--col-beta', sector: '--col-sector'
+  };
+
+  Object.entries(activeTab.column_widths).forEach(([key, width]) => {
+    const varName = CSS_VARS[key];
+    if (varName && width) {
+      document.documentElement.style.setProperty(varName, width);
+    } else if (varName) {
+      // 명시적 너비가 없으면 초기화 (기본값 사용)
+      document.documentElement.style.removeProperty(varName);
+    }
+  });
+
+  // 너비가 하나도 없는 경우 (초기 탭 등) 모든 변수 초기화
+  if (Object.keys(activeTab.column_widths).length === 0) {
+    Object.values(CSS_VARS).forEach(v => document.documentElement.style.removeProperty(v));
+  }
+
+  Charts.resizeAll();
 }
 
 /* ══════════════════════════════════════════════
@@ -1214,7 +1297,7 @@ function initDeleteBtn() {
     const names = [...AppState.checkedCodes].map(c => AppState.watchData[c]?.name || c).join(', ');
     if (!confirm(`[${names}] 을(를) 삭제하시겠습니까?`)) return;
     AppState.checkedCodes.forEach(code => {
-      delete AppState.watchData[code];
+      // delete AppState.watchData[code]; // 다른 탭에 동일 종목이 있을 수 있으므로 전역 캐시는 유지
       Charts.dispose(`spark-${code}`);
       if (AppState.previewCode === code) {
         hidePreview();
@@ -1540,6 +1623,46 @@ function initIndexSyncBtn(btnId, apiUrl, tabName, htmlContent) {
 }
 
 /* ══════════════════════════════════════════════
+   키보드 네비게이션
+══════════════════════════════════════════════ */
+function initKeyboardNavigation() {
+  window.addEventListener('keydown', e => {
+    // 입력창이 활성화된 경우 무시
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const items = Array.from(document.querySelectorAll('.stock-item'));
+      if (!items.length) return;
+
+      // 현재 활성화된 종목의 인덱스 찾기
+      const currentIndex = items.findIndex(el => el.dataset.code === AppState.previewCode);
+      let nextIndex;
+
+      if (e.key === 'ArrowDown') {
+        if (currentIndex === -1) nextIndex = 0;
+        else nextIndex = Math.min(items.length - 1, currentIndex + 1);
+      } else { // ArrowUp
+        if (currentIndex === -1) return; // 선택된 게 없으면 위로 갈 곳이 없음
+        nextIndex = Math.max(0, currentIndex - 1);
+      }
+
+      if (nextIndex !== undefined && nextIndex !== currentIndex) {
+        e.preventDefault(); // 화면 스크롤 방지
+        const targetItem = items[nextIndex];
+        const targetCode = targetItem.dataset.code;
+
+        // 미리보기 및 리스트 하이라이트 트리거
+        showStockPreview(targetCode);
+        highlightActiveRow(targetCode);
+
+        // 스크롤 이동
+        targetItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }
+  });
+}
+
+/* ══════════════════════════════════════════════
    초기화
 ══════════════════════════════════════════════ */
 async function init() {
@@ -1561,42 +1684,73 @@ async function init() {
   initIndexSyncBtn('btnNasdaq', '/api/nasdaq100/sync', 'Nasdaq', '<i class="fas fa-chart-line"></i> Nasdaq');
   initIndexSyncBtn('btnKospi', '/api/kospi200/sync', '코스피', '<i class="fas fa-chart-line"></i> 코스피');
   initModal();
+  initKeyboardNavigation();
 
   renderTabs();
   renderList();
 
-  // 전체 탭 종목 주가 초기 로드
-  const allStocks = [];
-  const seen = new Set();
-  Storage.getTabs().forEach(t => t.stocks.forEach(s => {
-    if (!seen.has(s.code)) { seen.add(s.code); allStocks.push(s); }
-  }));
+  // 1. 현재 활성화된 탭 종목 먼저 로드 (우선순위)
+  const activeStocks = Storage.getWatchlist();
+  const activeCodes = new Set(activeStocks.map(s => s.code));
 
-  if (allStocks.length) {
-    // watchData에 모든 종목 키 선점 (null)
-    allStocks.forEach(s => {
-      if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
-        AppState.watchData[s.code] = null;
+  // 2. 나머지 모든 탭 종목 모으기
+  const otherStocks = [];
+  const seen = new Set(activeCodes);
+  Storage.getTabs().forEach(t => {
+    t.stocks.forEach(s => {
+      if (!seen.has(s.code)) {
+        seen.add(s.code);
+        otherStocks.push(s);
       }
     });
+  });
 
-    // 초기 로딩: POST /api/stock/batch (DB only, 서버 내부 병렬)
-    // 로딩 표시 없음 — 종목별로 즉시 교체
-    await API.fetchBatch(allStocks, AppState.candleCount, AppState.listInterval,
+  // watchData 키 선점
+  [...activeStocks, ...otherStocks].forEach(s => {
+    if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
+      AppState.watchData[s.code] = null;
+    }
+  });
+
+  // 🚀 단계 1: 현재 화면에 보이는 종목 우선 로드
+  if (activeStocks.length) {
+    console.log(`[Init] 우선순위 로드: ${activeStocks.length}종목`);
+    await API.fetchBatch(activeStocks, AppState.candleCount, AppState.listInterval,
       (code, res, err) => {
         if (res) {
           AppState.watchData[code] = Indicators.analyzeAll(res);
-          _refreshListItem(code);
-        } else {
-          console.warn(`[${code}] 초기 로드 실패:`, err?.message);
+          _refreshListItem(code); // 현재 탭이므로 즉시 반영
         }
       }
     );
-
     setLastUpdated();
-    // watchData → AppState.fundamentals 동기화 (리스트 펀더멘털·섹터 표시)
     _syncFundamentalsFromWatchData();
-    renderList();
+    renderList(); // 우선 로드된 데이터로 리스트 정렬/렌더링
+  }
+
+  // 🚀 단계 2: 나머지 종목 백그라운드 분할 로드 (50개씩)
+  if (otherStocks.length) {
+    console.log(`[Init] 백그라운드 로드 시작: ${otherStocks.length}종목`);
+    const CHUNK_SIZE = 50;
+
+    // 비동기로 실행 (init 함수는 여기서 종료되어도 됨)
+    (async () => {
+      for (let i = 0; i < otherStocks.length; i += CHUNK_SIZE) {
+        const chunk = otherStocks.slice(i, i + CHUNK_SIZE);
+        await API.fetchBatch(chunk, AppState.candleCount, AppState.listInterval,
+          (code, res, err) => {
+            if (res) {
+              AppState.watchData[code] = Indicators.analyzeAll(res);
+              // 배경 종목이므로 _refreshListItem은 생략 (탭 전환 시 어차피 renderList됨)
+            }
+          }
+        );
+        // 브라우저가 숨을 쉴 틈을 줌
+        await new Promise(r => setTimeout(r, 100));
+      }
+      _syncFundamentalsFromWatchData();
+      console.log(`[Init] 모든 종목 로드 완료`);
+    })();
   }
 }
 

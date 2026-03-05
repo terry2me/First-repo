@@ -13,16 +13,16 @@ const Charts = (() => {
 
   // 컬러 팔레트
   const COLOR = {
-    upper:   '#f87171',   // 상단 밴드 (빨강)
-    middle:  '#60a5fa',   // 중단 밴드 (파랑)
-    lower:   '#4ade80',   // 하단 밴드 (초록)
-    fill:    'rgba(96,165,250,0.08)',
-    candleUp:   '#ef4444',
+    upper: '#f87171',   // 상단 밴드 (빨강)
+    middle: '#60a5fa',   // 중단 밴드 (파랑)
+    lower: '#4ade80',   // 하단 밴드 (초록)
+    fill: 'rgba(96,165,250,0.08)',
+    candleUp: '#ef4444',
     candleDown: '#3b82f6',
-    volume:  'rgba(156,163,175,0.4)',
-    grid:    'rgba(255,255,255,0.06)',
-    text:    '#94a3b8',
-    bg:      '#1e293b',
+    volume: 'rgba(156,163,175,0.4)',
+    grid: 'rgba(255,255,255,0.06)',
+    text: '#94a3b8',
+    bg: '#1e293b',
   };
 
   /** 공통 기본 옵션 (미니 차트용 — tooltip/axisPointer 없음) */
@@ -54,11 +54,11 @@ const Charts = (() => {
     _instances[domId] = chart;
 
     const { candlesWithBB } = data;
-    const dates   = candlesWithBB.map(c => c.date);
+    const dates = candlesWithBB.map(c => c.date);
     const candles = candlesWithBB.map(c => [c.open, c.close, c.low, c.high]);
-    const upper   = candlesWithBB.map(c => c.bbUpper);
-    const middle  = candlesWithBB.map(c => c.bbMiddle);
-    const lower   = candlesWithBB.map(c => c.bbLower);
+    const upper = candlesWithBB.map(c => c.bbUpper);
+    const middle = candlesWithBB.map(c => c.bbMiddle);
+    const lower = candlesWithBB.map(c => c.bbLower);
 
     const option = {
       ...baseOption(),
@@ -66,7 +66,8 @@ const Charts = (() => {
       xAxis: {
         type: 'category',
         data: dates,
-        axisLabel: { show: true, color: COLOR.text, fontSize: 9,
+        axisLabel: {
+          show: true, color: COLOR.text, fontSize: 9,
           formatter: v => v.slice(5) // MM-DD
         },
         axisLine: { lineStyle: { color: '#334155' } },
@@ -77,8 +78,9 @@ const Charts = (() => {
         type: 'value',
         scale: true,
         splitLine: { lineStyle: { color: COLOR.grid } },
-        axisLabel: { color: COLOR.text, fontSize: 9,
-          formatter: v => v >= 1000 ? (v/1000).toFixed(0)+'K' : v
+        axisLabel: {
+          color: COLOR.text, fontSize: 9,
+          formatter: v => v >= 1000 ? (v / 1000).toFixed(0) + 'K' : v
         },
       },
       series: [
@@ -108,10 +110,10 @@ const Charts = (() => {
         {
           name: '캔들', type: 'candlestick', data: candles,
           itemStyle: {
-            color:         COLOR.candleUp,
-            color0:        COLOR.candleDown,
-            borderColor:   COLOR.candleUp,
-            borderColor0:  COLOR.candleDown,
+            color: COLOR.candleUp,
+            color0: COLOR.candleDown,
+            borderColor: COLOR.candleUp,
+            borderColor0: COLOR.candleDown,
           },
           z: 3,
         },
@@ -137,16 +139,18 @@ const Charts = (() => {
 
     const { candlesWithBB } = data;
     const closes = candlesWithBB.map(c => c.close);
-    const upper  = candlesWithBB.map(c => c.bbUpper);
+    const upper = candlesWithBB.map(c => c.bbUpper);
     const middle = candlesWithBB.map(c => c.bbMiddle);
-    const lower  = candlesWithBB.map(c => c.bbLower);
+    const lower = candlesWithBB.map(c => c.bbLower);
 
     chart.setOption({
       backgroundColor: 'transparent',
       animation: false,
       grid: { left: 0, right: 0, top: 2, bottom: 2 },
-      xAxis: { type: 'category', show: false,
-        data: candlesWithBB.map(c => c.date) },
+      xAxis: {
+        type: 'category', show: false,
+        data: candlesWithBB.map(c => c.date)
+      },
       yAxis: { type: 'value', scale: true, show: false },
       series: [
         {
@@ -192,12 +196,12 @@ const Charts = (() => {
     _instances[domId] = chart;
 
     const { candlesWithBB, name } = data;
-    const dates   = candlesWithBB.map(c => c.date);
+    const dates = candlesWithBB.map(c => c.date);
     const candles = candlesWithBB.map(c => [c.open, c.close, c.low, c.high]);
-    const vols    = candlesWithBB.map(c => c.volume || 0);
-    const upper   = candlesWithBB.map(c => c.bbUpper);
-    const middle  = candlesWithBB.map(c => c.bbMiddle);
-    const lower   = candlesWithBB.map(c => c.bbLower);
+    const vols = candlesWithBB.map(c => c.volume || 0);
+    const upper = candlesWithBB.map(c => c.bbUpper);
+    const middle = candlesWithBB.map(c => c.bbMiddle);
+    const lower = candlesWithBB.map(c => c.bbLower);
 
     // 거래량 색상 (상승:빨, 하락:파)
     const volColors = candlesWithBB.map(c =>
@@ -226,8 +230,9 @@ const Charts = (() => {
       },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       dataZoom: [
-        { type: 'inside', xAxisIndex: [0,1], start: 0, end: 100 },
-        { type: 'slider', xAxisIndex: [0,1], start: 0, end: 100,
+        { type: 'inside', xAxisIndex: [0, 1], start: 0, end: 100 },
+        {
+          type: 'slider', xAxisIndex: [0, 1], start: 0, end: 100,
           bottom: 4, height: 18,
           textStyle: { color: COLOR.text, fontSize: 9 },
           borderColor: '#334155', fillerColor: 'rgba(96,165,250,0.15)',
@@ -255,14 +260,18 @@ const Charts = (() => {
         {
           type: 'value', scale: true, gridIndex: 0,
           splitLine: { lineStyle: { color: COLOR.grid } },
-          axisLabel: { color: COLOR.text, fontSize: 10,
-            formatter: v => v >= 1000 ? (v/1000).toFixed(0)+'K' : v },
+          axisLabel: {
+            color: COLOR.text, fontSize: 10,
+            formatter: v => v >= 1000 ? (v / 1000).toFixed(0) + 'K' : v
+          },
         },
         {
           type: 'value', scale: true, gridIndex: 1,
           splitLine: { show: false },
-          axisLabel: { color: COLOR.text, fontSize: 9,
-            formatter: v => v >= 1e6 ? (v/1e6).toFixed(0)+'M' : v >= 1000 ? (v/1000).toFixed(0)+'K' : v },
+          axisLabel: {
+            color: COLOR.text, fontSize: 9,
+            formatter: v => v >= 1e6 ? (v / 1e6).toFixed(0) + 'M' : v >= 1000 ? (v / 1000).toFixed(0) + 'K' : v
+          },
         },
       ],
       series: [
@@ -285,8 +294,8 @@ const Charts = (() => {
         {
           name: '캔들', type: 'candlestick', data: candles, xAxisIndex: 0, yAxisIndex: 0,
           itemStyle: {
-            color:        COLOR.candleUp,   color0:       COLOR.candleDown,
-            borderColor:  COLOR.candleUp,   borderColor0: COLOR.candleDown,
+            color: COLOR.candleUp, color0: COLOR.candleDown,
+            borderColor: COLOR.candleUp, borderColor0: COLOR.candleDown,
           },
         },
         {
@@ -316,8 +325,8 @@ const Charts = (() => {
     _instances[domId] = chart;
 
     const cands = data.candlesWithBB;
-    const dates  = cands.map(c => c.date);
-    const eomArr = cands.map(c => c.eom   !== null ? parseFloat(c.eom.toExponential   ? c.eom.toFixed(8)   : c.eom)   : null);
+    const dates = cands.map(c => c.date);
+    const eomArr = cands.map(c => c.eom !== null ? parseFloat(c.eom.toExponential ? c.eom.toFixed(8) : c.eom) : null);
     const sigArr = cands.map(c => c.eomSignal !== null ? parseFloat(c.eomSignal.toFixed ? c.eomSignal.toFixed(8) : c.eomSignal) : null);
 
     // 히스토그램 색 (EOM > Signal → 파랑, 아래 → 빨강)
@@ -331,7 +340,7 @@ const Charts = (() => {
     });
 
     // 매매신호 scatter
-    const buyScatter  = cands.map((c, i) => c.eomCross === 'BUY'  ? [i, c.eom] : null).filter(Boolean);
+    const buyScatter = cands.map((c, i) => c.eomCross === 'BUY' ? [i, c.eom] : null).filter(Boolean);
     const sellScatter = cands.map((c, i) => c.eomCross === 'SELL' ? [i, c.eom] : null).filter(Boolean);
 
     chart.setOption({
@@ -380,21 +389,21 @@ const Charts = (() => {
         {
           name: 'BUY신호', type: 'scatter', data: buyScatter,
           symbol: 'triangle', symbolSize: 10,
-          itemStyle: { color: '#22c55e', borderColor: '#fff', borderWidth: 0.5 },
-          label: { show: true, formatter: 'B', position: 'bottom', color: '#22c55e', fontSize: 8, fontWeight: 700 },
+          itemStyle: { color: COLOR.candleUp, borderColor: '#fff', borderWidth: 0.5 },
+          label: { show: true, formatter: 'B', position: 'bottom', color: COLOR.candleUp, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
         // SELL 신호
         {
           name: 'SELL신호', type: 'scatter', data: sellScatter,
           symbol: 'triangle', symbolRotate: 180, symbolSize: 10,
-          itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 0.5 },
-          label: { show: true, formatter: 'S', position: 'top', color: '#ef4444', fontSize: 8, fontWeight: 700 },
+          itemStyle: { color: COLOR.candleDown, borderColor: '#fff', borderWidth: 0.5 },
+          label: { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
       ],
     });
-    window.addEventListener('resize', () => { try { chart.resize(); } catch {} });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch { } });
   }
 
   /* ─────────────────────────────────────────────────────────────
@@ -417,14 +426,14 @@ const Charts = (() => {
     const chart = echarts.init(dom, 'dark');
     _instances[domId] = chart;
 
-    const cands  = data.candlesWithBB;
-    const dates  = cands.map(c => c.date);
-    const rsiArr = cands.map(c => c.rsi   !== null ? parseFloat(c.rsi.toFixed(2))   : null);
-    const kArr   = cands.map(c => c.slowK !== null ? parseFloat(c.slowK.toFixed(2)) : null);
-    const dArr   = cands.map(c => c.slowD !== null ? parseFloat(c.slowD.toFixed(2)) : null);
+    const cands = data.candlesWithBB;
+    const dates = cands.map(c => c.date);
+    const rsiArr = cands.map(c => c.rsi !== null ? parseFloat(c.rsi.toFixed(2)) : null);
+    const kArr = cands.map(c => c.slowK !== null ? parseFloat(c.slowK.toFixed(2)) : null);
+    const dArr = cands.map(c => c.slowD !== null ? parseFloat(c.slowD.toFixed(2)) : null);
 
     // 매매신호 scatter (RSI 값 위치에 표시)
-    const buyS  = cands.map((c, i) => c.rsiStSignal === 'BUY'  ? [i, c.rsi] : null).filter(Boolean);
+    const buyS = cands.map((c, i) => c.rsiStSignal === 'BUY' ? [i, c.rsi] : null).filter(Boolean);
     const sellS = cands.map((c, i) => c.rsiStSignal === 'SELL' ? [i, c.rsi] : null).filter(Boolean);
 
     chart.setOption({
@@ -455,19 +464,25 @@ const Charts = (() => {
           markLine: {
             silent: true, symbol: 'none',
             data: [
-              { yAxis: 20, name: '과매도', lineStyle: { color: '#ef4444', type: 'dashed', width: 1 },
-                label: { show: true, formatter: '20', position: 'insideEndBottom', color: '#ef4444', fontSize: 9 } },
-              { yAxis: 80, name: '과매수', lineStyle: { color: '#f97316', type: 'dashed', width: 1 },
-                label: { show: true, formatter: '80', position: 'insideEndTop', color: '#f97316', fontSize: 9 } },
-              { yAxis: 50, name: '중간',  lineStyle: { color: 'rgba(255,255,255,0.2)', type: 'dashed', width: 1 },
-                label: { show: false } },
+              {
+                yAxis: 20, name: '과매도', lineStyle: { color: '#ef4444', type: 'dashed', width: 1 },
+                label: { show: true, formatter: '20', position: 'insideEndBottom', color: '#ef4444', fontSize: 9 }
+              },
+              {
+                yAxis: 80, name: '과매수', lineStyle: { color: '#f97316', type: 'dashed', width: 1 },
+                label: { show: true, formatter: '80', position: 'insideEndTop', color: '#f97316', fontSize: 9 }
+              },
+              {
+                yAxis: 50, name: '중간', lineStyle: { color: 'rgba(255,255,255,0.2)', type: 'dashed', width: 1 },
+                label: { show: false }
+              },
             ],
           },
           markArea: {
             silent: true,
             data: [
-              [ { yAxis: 0  }, { yAxis: 20 } ],   // 과매도 영역
-              [ { yAxis: 80 }, { yAxis: 100 } ],   // 과매수 영역
+              [{ yAxis: 0 }, { yAxis: 20 }],   // 과매도 영역
+              [{ yAxis: 80 }, { yAxis: 100 }],   // 과매수 영역
             ],
             itemStyle: { color: 'rgba(239,68,68,0.07)' },
           },
@@ -488,21 +503,21 @@ const Charts = (() => {
         {
           name: 'BUY신호', type: 'scatter', data: buyS,
           symbol: 'triangle', symbolSize: 10,
-          itemStyle: { color: '#22c55e', borderColor: '#fff', borderWidth: 0.5 },
-          label: { show: true, formatter: 'B', position: 'bottom', color: '#22c55e', fontSize: 8, fontWeight: 700 },
+          itemStyle: { color: COLOR.candleUp, borderColor: '#fff', borderWidth: 0.5 },
+          label: { show: true, formatter: 'B', position: 'bottom', color: COLOR.candleUp, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
         // SELL 신호
         {
           name: 'SELL신호', type: 'scatter', data: sellS,
           symbol: 'triangle', symbolRotate: 180, symbolSize: 10,
-          itemStyle: { color: '#ef4444', borderColor: '#fff', borderWidth: 0.5 },
-          label: { show: true, formatter: 'S', position: 'top', color: '#ef4444', fontSize: 8, fontWeight: 700 },
+          itemStyle: { color: COLOR.candleDown, borderColor: '#fff', borderWidth: 0.5 },
+          label: { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
       ],
     });
-    window.addEventListener('resize', () => { try { chart.resize(); } catch {} });
+    window.addEventListener('resize', () => { try { chart.resize(); } catch { } });
   }
 
   /** 차트 인스턴스 dispose */
@@ -515,7 +530,7 @@ const Charts = (() => {
 
   /** 전체 resize (레이아웃 변경 시) */
   function resizeAll() {
-    Object.values(_instances).forEach(c => { try { c.resize(); } catch {} });
+    Object.values(_instances).forEach(c => { try { c.resize(); } catch { } });
   }
 
   return { renderMini, renderSparkline, renderModal, renderEOM, renderRSIStoch, dispose, resizeAll };

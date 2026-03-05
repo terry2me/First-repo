@@ -74,7 +74,7 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # 가격 테이블 (일봉/주봉 분리)
+    # 가격 테이블
     c.execute("""
         CREATE TABLE IF NOT EXISTS stock_prices (
             ticker   TEXT NOT NULL,
@@ -88,12 +88,9 @@ def init_db():
             PRIMARY KEY (ticker, date, interval)
         )
     """)
-    # 기존 DB에 컬럼이 없으면 추가 (마이그레이션)
-    for col in ['open', 'high', 'low', 'volume']:
-        try:
-            c.execute(f'ALTER TABLE stock_prices ADD COLUMN {col} REAL')
-        except Exception:
-            pass
+    
+    # 인덱스 추가 (조회 성능 최적화)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_stock_prices_lookup ON stock_prices (ticker, interval, date DESC)")
 
     # 종목 메타 (이름/시장/visible)
     c.execute("""
@@ -122,19 +119,18 @@ def init_db():
             fetched_at     TEXT
         )
     """)
-    # 기존 DB 마이그레이션 — OHLCV 컬럼
+
+    # 기존 DB 마이그레이션 (필요한 경우에만)
     for col in ['open', 'high', 'low', 'volume']:
         try:
             c.execute(f'ALTER TABLE stock_prices ADD COLUMN {col} REAL')
-        except Exception:
-            pass
-    # 기존 DB 마이그레이션 — sector 컬럼
+        except Exception: pass
+
     try:
         c.execute('ALTER TABLE stock_fundamentals ADD COLUMN sector TEXT')
-    except Exception:
-        pass
+    except Exception: pass
 
-    # ── KV 저장소 (레거시 /tables/* 호환 + config) ─────────────
+    # ── KV 저장소 ──
     c.execute("""
         CREATE TABLE IF NOT EXISTS _kv_store (
             table_name TEXT NOT NULL,
@@ -144,7 +140,7 @@ def init_db():
         )
     """)
 
-    # ── 한국 주식(코스피/코스닥) 종목명 맵핑 ─────────────
+    # ── 한국 주식 종목명 맵핑 ──
     c.execute("""
         CREATE TABLE IF NOT EXISTS kr_stock_names (
             code TEXT PRIMARY KEY,
@@ -152,7 +148,7 @@ def init_db():
         )
     """)
 
-    # ── 상관관계 테이블 ─────────────
+    # ── 상관관계 테이블 ──
     c.execute("""
         CREATE TABLE IF NOT EXISTS stock_correlations (
             target_code TEXT PRIMARY KEY,
@@ -168,7 +164,7 @@ def init_db():
 
     conn.commit()
     conn.close()
-    print("[DB] 초기화 완료:", DB_PATH)
+    print("[DB] 초기화 및 인덱스 최적화 완료")
 
 
 # ══════════════════════════════════════════════════════════
@@ -382,6 +378,54 @@ def _yf_fetch_history(ticker_str: str, start: str, end: str, interval: str) -> l
     except Exception as e:
         print(f"[yfinance] {ticker_str} history 오류: {e}")
         return []
+
+
+def _yf_download_batch(tickers: list[str], start: str, end: str, interval: str) -> dict[str, list[dict]]:
+    """yfinance.download()를 이용한 다중 종목 일괄 조회"""
+    if not tickers:
+        return {}
+    try:
+        ticker_str = " ".join(tickers)
+        end_dt = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        # threads=True (기본값)로 내부 병렬 처리 활용
+        df = yf.download(ticker_str, start=start, end=end_dt, interval=interval, 
+                         group_by='ticker', auto_adjust=True, progress=False)
+        
+        if df.empty:
+            return {t: [] for t in tickers}
+            
+        result = {}
+        for ticker in tickers:
+            try:
+                # 다중 종목인 경우 MultiIndex, 단일 종목인 경우 일반 Index일 수 있음
+                if len(tickers) > 1:
+                    if ticker not in df.columns.levels[0]:
+                        result[ticker] = []
+                        continue
+                    ticker_df = df[ticker].dropna(subset=['Close'])
+                else:
+                    ticker_df = df.dropna(subset=['Close'])
+                
+                rows = []
+                ticker_df.index = ticker_df.index.tz_localize(None) if ticker_df.index.tzinfo else ticker_df.index
+                for idx, row in ticker_df.iterrows():
+                    rows.append({
+                        "date":   idx.strftime("%Y-%m-%d"),
+                        "open":   round(float(row["Open"]),   4),
+                        "high":   round(float(row["High"]),   4),
+                        "low":    round(float(row["Low"]),    4),
+                        "close":  round(float(row["Close"]),  4),
+                        "volume": float(row.get("Volume", 0) or 0),
+                    })
+                result[ticker] = rows
+            except Exception as e:
+                print(f"[yfinance] {ticker} 파싱 오류: {e}")
+                result[ticker] = []
+        return result
+    except Exception as e:
+        print(f"[yfinance] batch download 오류: {e}")
+        return {t: [] for t in tickers}
 
 
 def _yf_fetch_meta(ticker_str: str) -> dict:
@@ -628,6 +672,57 @@ def ensure_prices(ticker: str, market: str, interval: str, force: bool = False) 
     return True
 
 
+def ensure_prices_batch(stocks_info: list[dict], interval: str, force: bool = False) -> dict[str, bool]:
+    """yf.download를 이용한 다중 종목 가격 업데이트"""
+    results = {}
+    to_fetch = []
+    
+    # 캐시 확인 및 대상 선정
+    for s in stocks_info:
+        ticker = s['ticker']
+        market = s['market']
+        if not force and db_has_today(ticker, interval, market):
+            results[ticker] = True
+        else:
+            to_fetch.append(s)
+            
+    if not to_fetch:
+        return results
+
+    # 가장 오래된 시작 날짜 찾기 (배치 조회를 위해 통합)
+    earliest_start = None
+    tickers_to_fetch = [s['ticker'] for s in to_fetch]
+    
+    for s in to_fetch:
+        ld = db_get_last_date(s['ticker'], interval)
+        if ld:
+            cur_start = ld
+        else:
+            cur_start = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
+        
+        if earliest_start is None or cur_start < earliest_start:
+            earliest_start = cur_start
+
+    # 일괄 다운로드
+    market = to_fetch[0]['market'] # 대부분 한 탭은 같은 시장임
+    today = get_today_str(market)
+    print(f"[yfinance] batch download {len(tickers_to_fetch)}종목: {earliest_start} ~ {today}")
+    
+    all_data = _yf_download_batch(tickers_to_fetch, earliest_start, today, interval)
+    
+    # DB 저장
+    for ticker, rows in all_data.items():
+        if rows:
+            db_upsert_prices(ticker, rows, interval)
+            results[ticker] = True
+        else:
+            # 다운로드 실패 시 개별 재시도 (안정성)
+            print(f"[yfinance] {ticker} 배치 실패 -> 개별 재시도")
+            results[ticker] = ensure_prices(ticker, market, interval, force=True)
+            
+    return results
+
+
 def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
     """
     메타/펀더멘털이 없거나 force=True이면 yfinance에서 조회해서 저장.
@@ -646,8 +741,8 @@ def ensure_meta_and_fundamentals(ticker: str, market: str, force: bool = False):
         try:
             fetched = datetime.fromisoformat(fund["fetched_at"])
             now_dt = datetime.now()
-            # 연도와 월이 일치하면 갱신하지 않음
-            if fetched.year == now_dt.year and fetched.month == now_dt.month:
+            # 오늘 날짜면 갱신하지 않음 (일간 캐시)
+            if fetched.date() == now_dt.date():
                 need_fund = False
             else:
                 need_fund = True
@@ -688,6 +783,7 @@ def build_response(ticker: str, market: str, interval: str, candle_count: int) -
     DB에서 데이터를 읽어 JS api.js가 기대하는 형식으로 변환
     """
     prices = db_get_prices(ticker, interval, limit=candle_count + 60)
+
     meta   = db_get_meta(ticker)
     fund   = db_get_fundamentals(ticker)
 
@@ -878,27 +974,49 @@ async def get_stock_batch(req: BatchRequest):
 # 순차 실행 + 0.5s 딜레이로 yfinance rate-limit 방지
 @app.post("/api/stock/refresh")
 async def refresh_tab_stocks(req: BatchRequest):
-    def _refresh_one(s: dict) -> dict:
-        code   = s.get("code", "")
+    # 1. 티커 및 시장 정보 전처리
+    stocks_info = []
+    for s in req.stocks:
+        code = s.get("code", "")
         market = s.get("market") or resolve_market(code)
         ticker = resolve_ticker(code, market)
+        stocks_info.append({"code": code, "market": market, "ticker": ticker})
+
+    # 2. 가격 통합 조회 및 저장 (일봉 -> 주봉 순차 처리)
+    loop = asyncio.get_event_loop()
+    
+    # 일봉 데이터를 먼저 가져옴
+    res_1d = await loop.run_in_executor(
+        _executor, ensure_prices_batch, stocks_info, "1d", True
+    )
+    # 주봉 데이터를 이어서 순차적으로 가져옴
+    res_1wk = await loop.run_in_executor(
+        _executor, ensure_prices_batch, stocks_info, "1wk", True
+    )
+
+    # 응답 판단용 매핑 (요청받은 인터벌 기준)
+    price_results = res_1d if req.interval == "1d" else res_1wk
+
+    # 3. 메타/펀더멘털 및 응답 생성 (여전히 종목당 meta 조회 필요하므로 병렬 처리)
+    def _finalize_one(s_info: dict) -> dict:
+        ticker = s_info['ticker']
+        code = s_info['code']
+        market = s_info['market']
         try:
-            ok = ensure_prices(ticker, market, req.interval, force=True)
-            if not ok:
-                return {"code": code, "data": None, "error": "데이터 없음"}
+            if not price_results.get(ticker):
+                return {"code": code, "data": None, "error": "가격 데이터 없음"}
+                
+            # 메타/펀더멘털은 일간 캐시가 적용되어 있어 날이 바뀌지 않았으면 DB 조회만 함
             ensure_meta_and_fundamentals(ticker, market)
+            
             data = build_response(ticker, market, req.interval, req.candle_count)
             return {"code": code, "data": data}
         except Exception as e:
             return {"code": code, "data": None, "error": str(e)}
 
-    results = []
-    loop = asyncio.get_event_loop()
-    for s in req.stocks:
-        result = await loop.run_in_executor(_executor, _refresh_one, s)
-        results.append(result)
-        await asyncio.sleep(0.5)   # yfinance rate-limit 방지
-    return {"results": results}
+    futures = [loop.run_in_executor(_executor, _finalize_one, s) for s in stocks_info]
+    results = await asyncio.gather(*futures)
+    return {"results": list(results)}
 
 
 # ══════════════════════════════════════════════════════════
@@ -917,6 +1035,7 @@ async def config_get():
                 "sort_order": r.get("sort_order", 0),
                 "stocks":     json.loads(r["stocks"]) if isinstance(r.get("stocks"), str)
                               else (r.get("stocks") or []),
+                "column_widths": r.get("column_widths", {}),
             }
             for r in tab_rows
         ],
@@ -953,6 +1072,7 @@ async def config_post(req: ConfigRequest):
                 "name":       tab.get("name", "기본"),
                 "sort_order": tab.get("sort_order", 0),
                 "stocks":     json.dumps(tab.get("stocks", []), ensure_ascii=False),
+                "column_widths": tab.get("column_widths", {}),
             })
 
     if req.settings is not None:

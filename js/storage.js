@@ -67,6 +67,7 @@ const Storage = (() => {
       name: t.name || '기본',
       sort_order: t.sort_order ?? 0,
       stocks: Array.isArray(t.stocks) ? t.stocks : [],
+      column_widths: t.column_widths || {},
     })).sort((a, b) => a.sort_order - b.sort_order);
 
     if (!_tabs.length) {
@@ -126,7 +127,7 @@ const Storage = (() => {
 
   async function addTab(name) {
     const maxOrder = _tabs.reduce((m, t) => Math.max(m, t.sort_order ?? 0), -1);
-    const tab = { uid: crypto.randomUUID(), name: name || '새 그룹', sort_order: maxOrder + 1, stocks: [] };
+    const tab = { uid: crypto.randomUUID(), name: name || '새 그룹', sort_order: maxOrder + 1, stocks: [], column_widths: {} };
     _tabs.push(tab);
     await _saveTabs();
     await setActiveTabId(tab.uid);
@@ -229,6 +230,13 @@ const Storage = (() => {
     await _saveTabs();
   }
 
+  async function updateColumnWidths(uid, widths) {
+    const tab = _tabs.find(t => t.uid === uid);
+    if (!tab) return;
+    tab.column_widths = widths;
+    await _saveTabs();
+  }
+
   async function updateStockName(code, newName) {
     if (!code || !newName) return;
     let changed = false;
@@ -280,6 +288,7 @@ const Storage = (() => {
     getTabs, getActiveTabId, setActiveTabId, getActiveTab,
     addTab, renameTab, removeTab, reorderTabs, saveTabs,
     getWatchlist, addStock, removeStocks, reorderStocks, copyStocks, moveStocks, updateStockName,
+    updateColumnWidths,
     getCandleCount, setCandleCount, getPreviewInterval, setPreviewInterval, getListInterval, setListInterval,
     getFundamentals, saveFundamental,
   };

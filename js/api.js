@@ -145,18 +145,19 @@ const API = (() => {
   }
 
   /**
-   * fetchRefresh — 새로고침 버튼(G)용
-   * POST /api/stock/refresh : 현재 탭 종목, yfinance 포함, 서버 순차 실행
-   * onProgress(code, data|null, error|null) 콜백
+   * fetchRefresh — 새로고침 버튼(G)용 (20개 단위 배치 처리)
    */
   async function fetchRefresh(stocks, candleCount, interval, onProgress) {
     if (!stocks || stocks.length === 0) return [];
 
+    const CHUNK_SIZE = 40;
     const results = [];
-    for (let i = 0; i < stocks.length; i++) {
-      const s = stocks[i];
+    console.log(`[API] fetchRefresh 시작: 총 ${stocks.length}종목, 배치 크기: ${CHUNK_SIZE}`);
+
+    for (let i = 0; i < stocks.length; i += CHUNK_SIZE) {
+      const chunk = stocks.slice(i, i + CHUNK_SIZE);
       const body = {
-        stocks: [{ code: s.code, market: s.market || _guessMarket(s.code) }],
+        stocks: chunk.map(s => ({ code: s.code, market: s.market || _guessMarket(s.code) })),
         interval,
         candle_count: candleCount,
       };
@@ -170,21 +171,30 @@ const API = (() => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const { results: batchResults } = await res.json();
-        const r = batchResults[0]; // Since we sent only 1 stock
 
-        if (r && r.data) {
-          const normalized = _normalize(r.data);
-          onProgress?.(s.code, normalized, null);
-          results.push(normalized);
-        } else {
-          const err = new Error(r?.error || '데이터 없음');
-          onProgress?.(s.code, null, err);
-          results.push(null);
-        }
+        // 20개의 결과를 각각 처리하여 화면 갱신 유발
+        batchResults.forEach((r, idx) => {
+          const s = chunk[idx];
+          if (r && r.data) {
+            const normalized = _normalize(r.data);
+            onProgress?.(s.code, normalized, null);
+            results.push(normalized);
+          } else {
+            const err = new Error(r?.error || '데이터 없음');
+            onProgress?.(s.code, null, err);
+            results.push(null);
+          }
+        });
       } catch (e) {
-        console.warn(`[API] fetchRefresh 실패 (${s.code}):`, e.message);
-        onProgress?.(s.code, null, e);
-        results.push(null);
+        console.warn(`[API] 배치 fetchRefresh 실패 (chunk ${i}):`, e.message);
+        chunk.forEach(s => {
+          onProgress?.(s.code, null, e);
+          results.push(null);
+        });
+      }
+      // 요청 간 0.5초(500ms) 지연 (Yahoo Rate Limit 방지)
+      if (i + CHUNK_SIZE < stocks.length) {
+        await _sleep(500);
       }
     }
     return results;

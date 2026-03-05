@@ -558,7 +558,7 @@ function anRenderPreview(data) {
 
   const todayEl = _anEl('previewTodayChange');
   if (todayEl) {
-    todayEl.textContent = `${fmtChg(todayChange, isUS)} (${fmtPct(todayChangePct)})`;
+    todayEl.textContent = `${fmtPct(todayChangePct)} (${fmtChg(todayChange, isUS)})`;
     todayEl.className = 'preview-today-chg ' + (todayChange >= 0 ? 'up' : 'down');
   }
   const periodLbl = _anEl('previewPeriodLabel');
@@ -568,7 +568,7 @@ function anRenderPreview(data) {
   }
   const chgEl = _anEl('previewChange');
   if (chgEl) {
-    chgEl.textContent = `${fmtChg(change, isUS)} (${fmtPct(changePct)})`;
+    chgEl.textContent = `${fmtPct(changePct)} (${fmtChg(change, isUS)})`;
     chgEl.className = 'preview-change ' + (change >= 0 ? 'up' : 'down');
   }
   const alertEl = _anEl('previewAlert');
@@ -842,7 +842,11 @@ function _anBuildListItem(stock, data) {
     bbLowerPct = l.str; bbLowerCls = l.cls;
   }
 
-  const fd = AnState.fundamentals[stock.code] || {};
+  // 펀더멘털
+  const fd = {
+    ...(AnState.fundamentals[stock.code] || {}),
+    ...(data || {})
+  };
   const trailPE = fmtFundNum(fd.trailingPE);
   const forwardPE = fmtFundNum(fd.forwardPE);
   const pbrVal = fmtFundNum(fd.pbr);
@@ -950,7 +954,10 @@ function _anRefreshListItem(code) {
   if (data?.name) { const ne = el.querySelector('.item-name'); if (ne) ne.textContent = data.name; }
   if (data?.ticker) { const ce = el.querySelector('.item-code'); if (ce) ce.textContent = data.ticker; }
 
-  const fd = AnState.fundamentals[code] || {};
+  const fd = {
+    ...(AnState.fundamentals[code] || {}),
+    ...(data || {})
+  };
   const _set = (sel, val, cls) => {
     const e2 = el.querySelector(sel);
     if (!e2) return;
