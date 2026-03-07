@@ -1273,6 +1273,7 @@ app.mount("/common", StaticFiles(directory=str(BASE_DIR / "common")), name="comm
 app.mount("/watchlist", StaticFiles(directory=str(BASE_DIR / "watchlist"), html=True), name="watchlist")
 app.mount("/backtest", StaticFiles(directory=str(BASE_DIR / "backtest"), html=True), name="backtest")
 app.mount("/discovery", StaticFiles(directory=str(BASE_DIR / "discovery"), html=True), name="discovery")
+app.mount("/filter", StaticFiles(directory=str(BASE_DIR / "filter"), html=True), name="filter")
 
 @app.get("/")
 async def root():
