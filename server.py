@@ -326,6 +326,8 @@ _TICKER_ALIAS: dict[str, str] = {
 
 def resolve_ticker(code: str, market: str) -> str:
     """코드 + 시장 → yfinance ticker 문자열"""
+    if code.upper() == "^KS200":
+        return "^KS200"
     if market == "US":
         upper = code.upper()
         return _TICKER_ALIAS.get(upper, upper)
@@ -1269,10 +1271,15 @@ async def correlations_sync():
 # ── 정적 파일 서빙 (HTML/CSS/JS) ───────────────────────────
 app.mount("/css", StaticFiles(directory=str(BASE_DIR / "css")), name="css")
 app.mount("/js",  StaticFiles(directory=str(BASE_DIR / "js")),  name="js")
+app.mount("/backtest", StaticFiles(directory=str(BASE_DIR / "backtest"), html=True), name="backtest")
 
 @app.get("/")
 async def root():
     return FileResponse(str(BASE_DIR / "index.html"))
+
+@app.get("/watchlist.html")
+async def watchlist():
+    return FileResponse(str(BASE_DIR / "watchlist.html"))
 
 @app.get("/favicon.ico")
 async def favicon():

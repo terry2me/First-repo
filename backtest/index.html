@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>백테스팅</title>
+    <link rel="stylesheet" href="../css/style.css" />
+    <link rel="stylesheet" href="backtest.css" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+</head>
+
+<body>
+    <div class="bt-layout">
+        <aside class="bt-sidebar">
+            <div class="bt-panel bt-scenario-panel bt-flex-row" style="margin-bottom: 8px; gap: 4px;">
+                <select id="btScenarioSelect" class="bt-select"></select>
+                <button id="btnBtSaveScenario" class="bt-btn outline"
+                    style="flex-shrink: 0; padding: 0 8px; font-size: 12px; height: 28px;">저장</button>
+                <button id="btnBtDeleteScenario" class="bt-btn outline"
+                    style="flex-shrink: 0; padding: 0 8px; font-size: 12px; height: 28px;">삭제</button>
+            </div>
+
+            <div class="bt-panel">
+                <div class="bt-form-group">
+                    <label>초기 자본금</label>
+                    <input type="text" id="btInitialCapital" value="10000000" />
+                </div>
+                <div class="bt-form-group">
+                    <label>매매 수수료 (%)</label>
+                    <input type="number" id="btFeeRate" value="0.015" step="0.001" />
+                </div>
+                <div class="bt-form-group">
+                    <label>슬리피지/세금 (%)</label>
+                    <input type="number" id="btTaxRate" value="0.2" step="0.01" />
+                </div>
+                <div class="bt-form-group">
+                    <label>조회 기간 (개월)</label>
+                    <input type="number" id="btPeriodMonths" value="12" min="1" />
+                </div>
+            </div>
+
+            <div class="bt-panel">
+                <div class="bt-radio-group">
+                    <label><input type="radio" name="rebalanceType" value="none" checked> 안함</label>
+                    <label><input type="radio" name="rebalanceType" value="period"> 정기</label>
+                    <label><input type="radio" name="rebalanceType" value="deviation"> 편차</label>
+                </div>
+                <div id="rebalancePeriodRow" class="bt-form-group flex-row" style="display:none;">
+                    <label>주기</label>
+                    <select id="btRebalancePeriod" class="bt-select">
+                        <option value="1wk">1주일</option>
+                        <option value="2wk">2주일</option>
+                        <option value="1mo" checked>1개월</option>
+                        <option value="3mo">3개월</option>
+                        <option value="6mo">6개월</option>
+                        <option value="1yr">1년</option>
+                    </select>
+                </div>
+                <div id="rebalanceDeviationRow" class="bt-form-group flex-row" style="display:none;">
+                    <label>편차(%)</label>
+                    <input type="number" id="btRebalanceThreshold" value="5" min="1" />
+                </div>
+            </div>
+
+            <button id="btnRunBacktest" class="bt-run-btn" disabled>시작</button>
+        </aside>
+
+        <aside class="bt-sidebar bt-sidebar-portfolio">
+            <div class="bt-panel bt-panel-portfolio">
+                <div class="bt-form-group" style="margin-bottom: 4px;">
+                    <select id="btTabSelect" class="bt-select"></select>
+                </div>
+                <div id="btStockPickArea" class="bt-stock-pick-area">
+                    <p class="empty-hint">그룹을 먼저 선택하세요.</p>
+                </div>
+                <div id="btStockList" class="bt-stock-list"></div>
+            </div>
+        </aside>
+
+        <main class="bt-main">
+            <div id="btEmptyState" class="bt-empty-state">
+                <i class="fas fa-chart-pie"></i>
+                <p>포트폴리오를 구성하고 백테스트를 실행하세요.</p>
+            </div>
+
+            <div id="btResultState" class="bt-result-state" style="display:none;">
+                <div class="bt-summary-cards">
+                    <div class="bt-card">
+                        <div class="title">누적 수익률</div>
+                        <div id="resTotalReturn" class="value">--</div>
+                    </div>
+                    <div class="bt-card">
+                        <div class="title">누적 수익</div>
+                        <div id="resTotalProfit" class="value">--</div>
+                    </div>
+                    <div class="bt-card">
+                        <div class="title">CAGR (연환산)</div>
+                        <div id="resCAGR" class="value">--</div>
+                    </div>
+                    <div class="bt-card">
+                        <div class="title">MDD (최대낙폭)</div>
+                        <div id="resMDD" class="value down">--</div>
+                    </div>
+                    <div class="bt-card sm">
+                        <div class="title">Sharpe</div>
+                        <div id="resSharpe" class="value sm">--</div>
+                    </div>
+                    <div class="bt-card sm">
+                        <div class="title">Sortino</div>
+                        <div id="resSortino" class="value sm">--</div>
+                    </div>
+                    <div class="bt-card sm">
+                        <div class="title">Calmar</div>
+                        <div id="resCalmar" class="value sm">--</div>
+                    </div>
+                    <div class="bt-card sm">
+                        <div class="title">Info Ratio</div>
+                        <div id="resIR" class="value sm">--</div>
+                    </div>
+                </div>
+
+                <div class="bt-chart-wrap">
+                    <div id="btMainChart" class="bt-main-chart"></div>
+                </div>
+
+                <div class="bt-log-wrap">
+                    <table class="bt-log-table">
+                        <thead>
+                            <tr>
+                            <tr>
+                                <th style="width: 100px;">날짜</th>
+                                <th style="width: 80px;">구분</th>
+                                <th style="width: 80px;">비용</th>
+                                <th>평가 내역</th>
+                                <th style="width: 80px;">당일 누적</th>
+                                <th style="width: 110px;">평가 금액</th>
+                            </tr>
+                            </tr>
+                        </thead>
+                        <tbody id="btLogBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="btLoading" class="bt-loading" style="display:none;">
+        <div class="spinner"></div>
+        <span id="btLoadingProgress">데이터를 수집 중입니다...</span>
+    </div>
+
+    <!-- Toast -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="../js/config.js"></script>
+    <script src="../js/storage.js"></script>
+    <script src="../js/api.js"></script>
+    <script>
+        // Utils needed by backtest.js
+        function fmt(num) {
+            if (typeof num !== 'number') return num;
+            return num.toLocaleString();
+        }
+        function fmtPct(num) {
+            if (typeof num !== 'number') return num;
+            const prefix = num > 0 ? '+' : '';
+            return prefix + num.toFixed(2) + '%';
+        }
+        function showToast(msg, type = 'info') {
+            const c = document.getElementById('toastContainer');
+            if (!c) return;
+            const t = document.createElement('div');
+            t.className = 'toast ' + type;
+            t.textContent = msg;
+            c.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+    </script>
+    <script src="backtest.js"></script>
+    <!-- BacktestUI.init() is called inside backtest.js DOMContentLoaded listener -->
+</body>
+
+</html>

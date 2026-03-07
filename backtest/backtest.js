@@ -13,7 +13,6 @@ const BacktestUI = {
         this.renderStockList(); // Make sure initial selectedStocks (like CASH) are rendered
         this.updateWeightSum();
         this.initInputFormatting();
-        this.updatePeriodHint();
     },
 
     initInputFormatting() {
@@ -29,20 +28,6 @@ const BacktestUI = {
         });
 
         const periodInp = document.getElementById('btPeriodMonths');
-        if (periodInp) {
-            periodInp.addEventListener('input', () => this.updatePeriodHint());
-        }
-    },
-
-    updatePeriodHint() {
-        const inp = document.getElementById('btPeriodMonths');
-        const hint = document.getElementById('btPeriodDateHint');
-        if (!inp || !hint) return;
-        const months = Math.max(1, parseInt(inp.value) || 12);
-        const now = new Date();
-        const start = new Date(now.getFullYear(), now.getMonth() - months, now.getDate());
-        const fmt = d => `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-        hint.textContent = `${fmt(start)} ~`;
     },
 
     loadScenarios() {
@@ -59,7 +44,7 @@ const BacktestUI = {
     renderScenarioSelect() {
         const sel = document.getElementById('btScenarioSelect');
         const current = sel.value;
-        sel.innerHTML = '<option value="">-- 시나리오 선택 --</option>';
+        sel.innerHTML = '';
         Object.keys(this.scenarios).sort().forEach(name => {
             const opt = document.createElement('option');
             opt.value = name;
@@ -105,21 +90,16 @@ const BacktestUI = {
         cashItem.className = 'stock-pick-item';
         const isCashSelected = this.selectedStocks.some(ss => ss.code === 'CASH');
         if (isCashSelected) cashItem.classList.add('active');
-        cashItem.innerHTML = `
-        <input type="checkbox" value="CASH" ${isCashSelected ? 'checked' : ''} />
-        <span>현금</span>
-        `;
-        cashItem.querySelector('input').addEventListener('change', (e) => {
-            if (e.target.checked) {
-                const already = this.selectedStocks.find(ss => ss.code === 'CASH');
-                if (!already) {
-                    this.selectedStocks.unshift({
-                        code: 'CASH',
-                        name: '현금',
-                        ticker: 'CASH',
-                        weight: 20
-                    });
-                }
+        cashItem.innerHTML = `<span>현금</span>`;
+        cashItem.addEventListener('click', () => {
+            const isCashSelected = this.selectedStocks.some(ss => ss.code === 'CASH');
+            if (!isCashSelected) {
+                this.selectedStocks.unshift({
+                    code: 'CASH',
+                    name: '현금',
+                    ticker: 'CASH',
+                    weight: 20
+                });
                 cashItem.classList.add('active');
             } else {
                 this.selectedStocks = this.selectedStocks.filter(ss => ss.code !== 'CASH');
@@ -139,13 +119,10 @@ const BacktestUI = {
             const isSelected = this.selectedStocks.some(ss => ss.code === s.code);
             if (isSelected) item.classList.add('active');
 
-            item.innerHTML = `
-        <input type="checkbox" value="${s.code}" ${isSelected ? 'checked' : ''} />
-        <span>${s.name}</span>
-      `;
-
-            item.querySelector('input').addEventListener('change', (e) => {
-                if (e.target.checked) {
+            item.innerHTML = `<span>${s.name}</span>`;
+            item.addEventListener('click', () => {
+                const isSelected = this.selectedStocks.some(ss => ss.code === s.code);
+                if (!isSelected) {
                     const already = this.selectedStocks.find(ss => ss.code === s.code);
                     if (!already) {
                         this.selectedStocks.push({
@@ -270,7 +247,6 @@ const BacktestUI = {
         document.getElementById('btFeeRate').value = config.feeRate || 0.015;
         document.getElementById('btTaxRate').value = config.taxRate || 0.20;
         document.getElementById('btPeriodMonths').value = config.periodMonths || 12;
-        this.updatePeriodHint();
 
         let loadedStocks = config.stocks || [];
         if (!loadedStocks.find(s => s.code === 'CASH')) {
@@ -301,13 +277,12 @@ const BacktestUI = {
             const item = document.createElement('div');
             item.className = 'bt-stock-item';
             item.innerHTML = `
-        <div class="stock-info">
-          <span class="name">${s.name}</span>
-          <span class="code">${s.ticker === 'CASH' ? '-' : s.ticker}</span>
+        <span class="bt-stock-name">${s.name}</span>
+        <div class="bt-flex-row" style="gap: 4px; align-items: center;">
+            <input type="number" class="weight-input" value="${s.weight}" min="0" max="100" data-idx="${idx}" />
+            <span class="unit-text">%</span>
+            <i class="fas fa-times btn-remove-stock" data-idx="${idx}" style="margin-left: 4px;"></i>
         </div>
-        <input type="number" class="weight-input" value="${s.weight}" min="0" max="100" data-idx="${idx}" />
-        <span class="unit-text">%</span>
-        <i class="fas fa-times btn-remove-stock" data-idx="${idx}"></i>
       `;
 
             item.querySelector('.weight-input').addEventListener('input', (e) => {
@@ -337,16 +312,16 @@ const BacktestUI = {
         const fillEl = document.getElementById('btWeightSumFill');
         const btn = document.getElementById('btnRunBacktest');
 
-        sumEl.textContent = sum + '%';
-        fillEl.style.width = Math.min(sum, 100) + '%';
+        if (sumEl) sumEl.textContent = sum + '%';
+        if (fillEl) fillEl.style.width = Math.min(sum, 100) + '%';
 
         if (sum === 100) {
-            sumEl.style.color = '#10b981';
-            fillEl.className = 'sum-fill ok';
+            if (sumEl) sumEl.style.color = '#10b981';
+            if (fillEl) fillEl.className = 'sum-fill ok';
             btn.disabled = this.selectedStocks.length === 0;
         } else {
-            sumEl.style.color = sum > 100 ? '#ef4444' : '#94a3b8';
-            fillEl.className = 'sum-fill' + (sum > 100 ? ' error' : '');
+            if (sumEl) sumEl.style.color = sum > 100 ? '#ef4444' : '#94a3b8';
+            if (fillEl) fillEl.className = 'sum-fill' + (sum > 100 ? ' error' : '');
             btn.disabled = true;
         }
     },
@@ -503,13 +478,17 @@ const BacktestUI = {
             const pnlPct = (log.pnlPct || 0) * 100;
             const pnlClass = pnlPct >= 0 ? 'up' : 'down';
 
+            let displayMsg = log.msg;
+            if (log.type === '리밸런싱' || log.type === '매수' || log.type === '일부 매도' || log.type === '추가 매수') {
+                const match = log.msg.match(/\(비용: (.*?)\)/);
+                if (match) displayMsg = match[1];
+            }
+
             tr.innerHTML = `
         <td>${log.date}</td>
         <td><span class="bt-log-type ${typeClass}">${log.type}</span></td>
-        <td>
-           <span style="font-weight:600; margin-right:8px;">${log.msg}</span>
-           ${this.renderLogEvalDetail(log.evals)}
-        </td>
+        <td style="font-weight:600;">${displayMsg}</td>
+        <td>${log.type === '매수' ? '' : this.renderLogEvalDetail(log.evals, log.triggerTicker)}</td>
         <td class="${pnlClass}">${fmtPct(pnlPct)}</td>
         <td>${fmt(Math.round(log.value))}</td>
       `;
@@ -519,25 +498,28 @@ const BacktestUI = {
         this.renderMainChart(result);
     },
 
-    renderLogEvalDetail(evals) {
+    renderLogEvalDetail(evals, triggerTicker = null) {
         if (!evals) return '';
-        let html = '<span class="log-eval-detail" style="display:inline-flex; flex-wrap:wrap; gap:8px; align-items:center;">';
-        for (const [ticker, data] of Object.entries(evals)) {
+        let html = '<span class="log-eval-detail" style="display:inline-flex; flex-wrap:nowrap; gap:8px; align-items:center; white-space:nowrap;">';
+
+        // 리밸런싱 유발 종목이 있는 경우 (편차 리밸런싱 등) 해당 종목의 "전" 정보만 한 줄로 표시
+        if (triggerTicker && evals[triggerTicker]) {
+            const data = evals[triggerTicker];
             const pnl = data.pnlPct * 100;
             const cls = pnl >= 0 ? 'profit' : 'loss';
-            let valStr = '';
-            if (data.beforeVal !== undefined && data.afterVal !== undefined && Math.abs(data.beforeVal - data.afterVal) > 1) {
-                const bwStr = (data.beforeWeight !== undefined && data.beforeWeight > 0) ? ` <span style="font-size:10px;color:var(--text-muted)">(${data.beforeWeight.toFixed(1)}%)</span>` : '';
-                const awStr = (data.afterWeight !== undefined) ? ` <span style="font-size:10px;color:var(--text-muted)">(${data.afterWeight.toFixed(1)}%)</span>` : '';
-                valStr = `${fmt(Math.round(data.beforeVal))}원${bwStr} <i class="fas fa-arrow-right" style="font-size:10px;margin:0 4px;color:var(--text-muted)"></i> ${fmt(Math.round(data.afterVal))}원${awStr}`;
-            } else {
-                const val = data.afterVal !== undefined ? data.afterVal : data.val;
-                valStr = `${fmt(Math.round(val))}원`;
-            }
-            html += `<span class="eval-item">
-            <b style="color:var(--text-primary)">${ticker}</b>: ${valStr} <small class="${cls}">(${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%)</small>
-          </span>`;
+            const bVal = data.beforeVal !== undefined ? data.beforeVal : (data.val || 0);
+            const bWeight = data.beforeWeight !== undefined ? data.beforeWeight : 0;
+
+            html += `<span class="eval-item trigger-highlight" style="margin:0; padding:2px 8px;">
+                <b style="color:var(--text-primary)">${triggerTicker} (변경 전)</b>: 
+                ${fmt(Math.round(bVal))}원 <span style="font-size:10px;color:var(--text-muted)">(${bWeight.toFixed(1)}%)</span>
+                <small class="${cls}" style="margin-left:4px;">(${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%)</small>
+            </span>`;
+        } else {
+            // 전체 리스트 표시(매수, 최종 결과 등)는 기획에 따라 제거
+            return '';
         }
+
         html += '</span>';
         return html;
     },
@@ -596,7 +578,8 @@ const BacktestUI = {
                     name: 'S&P 500', type: 'line', data: sp500Data, smooth: true, showSymbol: false,
                     lineStyle: { color: '#ef4444', width: 1.5, type: 'dashed' },
                 }
-            ]
+            ],
+            grid: { top: 0, left: 0, right: 0, bottom: 0, containLabel: false }
         };
         myChart.setOption(option);
         window.addEventListener('resize', () => myChart.resize());
@@ -731,8 +714,9 @@ class BacktestEngine {
                     for (const ticker in this.holdings) portfolioValue += this.holdings[ticker].qty * this.holdings[ticker].currentPrice;
                 }
             } else if (this.strategy.rebalanceType === 'deviation') {
-                if (this.checkDeviation(portfolioValue)) {
-                    this.rebalance(date, "상시 편차 리밸런싱");
+                const triggerTicker = this.checkDeviation(portfolioValue);
+                if (triggerTicker) {
+                    this.rebalance(date, "상시 편차 리밸런싱", 0, false, null, triggerTicker);
                     portfolioValue = this.currentCash;
                     for (const ticker in this.holdings) portfolioValue += this.holdings[ticker].qty * this.holdings[ticker].currentPrice;
                 }
@@ -780,7 +764,7 @@ class BacktestEngine {
             finalEvals[ticker].afterWeight = finalPortfolioValue > 0 ? (finalEvals[ticker].afterVal / finalPortfolioValue) * 100 : 0;
         }
         const finalPnlPct = (finalPortfolioValue / this.initialCapital) - 1;
-        this.addLog(lastDate, '최종 결과', '백테스트 종료 (최종 평가 금액)', finalPortfolioValue, finalEvals, finalPnlPct);
+        this.addLog(lastDate, '최종 결과', '', finalPortfolioValue, finalEvals, finalPnlPct);
         // ------------------------
 
         return this.calculateFinalStats();
@@ -813,16 +797,16 @@ class BacktestEngine {
     }
 
     checkDeviation(totalValue) {
-        if (totalValue <= 0) return false;
+        if (totalValue <= 0) return null;
         for (const ticker in this.holdings) {
             const h = this.holdings[ticker];
             const actualWeight = (h.qty * h.currentPrice) / totalValue;
-            if (Math.abs(actualWeight - h.weight) > (this.strategy.rebalanceThreshold / 100)) return true;
+            if (Math.abs(actualWeight - h.weight) > (this.strategy.rebalanceThreshold / 100)) return ticker;
         }
-        return false;
+        return null;
     }
 
-    rebalance(date, reason, withdrawAmount = 0, isInitial = false, logTypeOverride = null) {
+    rebalance(date, reason, withdrawAmount = 0, isInitial = false, logTypeOverride = null, triggerTicker = null) {
         // 현재 포트폴리오 총액 산출 (잔여 현금 + 보유 종목 평가액)
         let currentTotal = this.currentCash;
         const beforeVals = {};
@@ -897,11 +881,11 @@ class BacktestEngine {
             logType = withdrawAmount > 0 ? '일부 매도' : '추가 매수';
         }
 
-        this.addLog(date, logType, `${reason} (비용: ${fmt(Math.round(costThisTime))}원)`, finalPortfolioValue, evals, pnlPct);
+        this.addLog(date, logType, `${reason} (비용: ${fmt(Math.round(costThisTime))}원)`, finalPortfolioValue, evals, pnlPct, triggerTicker);
     }
 
-    addLog(date, type, msg, value, evals, pnlPct = 0) {
-        this.results.logs.push({ date, type, msg, value, evals, pnlPct });
+    addLog(date, type, msg, value, evals, pnlPct = 0, triggerTicker = null) {
+        this.results.logs.push({ date, type, msg, value, evals, pnlPct, triggerTicker });
     }
 
     calculateFinalStats() {
