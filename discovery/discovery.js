@@ -211,7 +211,7 @@ class DiscoveryGASolver {
         const allUnique = Array.from(hallOfFame.values());
         allUnique.sort((a, b) => b.fitness - a.fitness);
 
-        return allUnique.slice(0, 20);
+        return allUnique.slice(0, 50);
     }
 }
 
@@ -426,21 +426,38 @@ const DiscoveryUI = {
             const tr = document.createElement('tr');
             tr.style.cursor = 'pointer';
             tr.className = 'ds-res-row';
-            const comboNames = res.genes.map(gIdx => solverPool[gIdx].name).join(', ');
+
+            const comboNamesHtml = res.genes.map(gIdx => {
+                const s = solverPool[gIdx];
+                return `<span class="ds-stock-ticker" data-gidx="${gIdx}" title="${s.name}">${s.ticker}</span>`;
+            }).join('');
+
             const retVal = res.stats.absReturn * 100;
             tr.innerHTML = `
                 <td>${idx + 1}</td>
-                <td style="text-align:left; font-weight:600;">${comboNames}</td>
+                <td style="text-align:left;">${comboNamesHtml}</td>
                 <td style="color:var(--accent); font-weight:700;">${res.stats.fitness.toFixed(2)}</td>
                 <td class="${retVal >= 0 ? 'up' : 'down'}">${fmtPct(retVal)}</td>
                 <td class="down">${fmtPct(res.stats.mdd * 100)}</td>
                 <td><button class="ds-btn outline" style="height:22px; padding:0 8px; font-size:11px;">분석</button></td>
             `;
+
             tr.addEventListener('click', () => {
                 document.querySelectorAll('.ds-res-row').forEach(r => r.classList.remove('active'));
                 tr.classList.add('active');
                 this.runDetailedBacktest(res, solverPool, solverConfig);
             });
+
+            tr.querySelectorAll('.ds-stock-ticker').forEach(span => {
+                span.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    document.querySelectorAll('.ds-res-row').forEach(r => r.classList.remove('active'));
+                    tr.classList.add('active');
+                    const gIdx = parseInt(span.getAttribute('data-gidx'));
+                    this.runSingleStockBacktest(gIdx, solverPool, solverConfig);
+                });
+            });
+
             logBody.appendChild(tr);
         });
         if (results.length > 0) this.runDetailedBacktest(results[0], solverPool, solverConfig);
@@ -451,6 +468,26 @@ const DiscoveryUI = {
         const stockWeight = (100 - cashWeight) / res.genes.length;
         const stocks = res.genes.map(gIdx => { const s = solverPool[gIdx]; return { code: s.code, name: s.name, ticker: s.ticker, weight: stockWeight }; });
         stocks.unshift({ code: 'CASH', name: '현금', ticker: 'CASH', weight: cashWeight });
+        this.selectedStocks = stocks;
+        const config = this.getCurrentConfig();
+        await this.executeSimulationInternal(
+            Number(config.initialCapital.replace(/,/g, '')),
+            Number(config.feeRate) / 100,
+            Number(config.taxRate) / 100,
+            parseInt(config.periodMonths),
+            stocks,
+            config
+        );
+    },
+
+    async runSingleStockBacktest(gIdx, solverPool, solverConfig) {
+        const cashWeight = solverConfig.cashWeight || 0;
+        const stockWeight = 100 - cashWeight;
+        const s = solverPool[gIdx];
+        const stocks = [
+            { code: 'CASH', name: '현금', ticker: 'CASH', weight: cashWeight },
+            { code: s.code, name: s.name, ticker: s.ticker, weight: stockWeight }
+        ];
         this.selectedStocks = stocks;
         const config = this.getCurrentConfig();
         await this.executeSimulationInternal(
