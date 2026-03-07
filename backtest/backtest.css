@@ -10,26 +10,33 @@
 }
 
 :root {
-    --bg-base: #0b1120;
-    --bg-surface: #131e30;
-    --bg-card: #1a2744;
-    --bg-hover: #1e3050;
-    --bg-input: #0f1a2e;
-    --border: #2a3f5f;
-    --border-light: #1e3050;
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
+    --bg-base: #020617;
+    /* 극강의 블랙 */
+    --bg-surface: #0f172a;
+    /* 선명한 서피스 */
+    --bg-card: #1e293b;
+    --bg-hover: #1e293b;
+    --bg-input: #010413;
+    --border: rgba(148, 163, 184, 0.1);
+    /* 선격있고 날카로운 경계선 */
+    --border-light: rgba(148, 163, 184, 0.05);
+    --text-primary: #94a3b8;
+    /* Significantly darker for eye comfort */
+    --text-secondary: #64748b;
+    --text-muted: #475569;
     --accent: #3b82f6;
-    --accent-hover: #2563eb;
-    --accent-glow: rgba(59, 130, 246, 0.25);
-    --up: #ef4444;
+    --accent-hover: #60a5fa;
+    --accent-glow: rgba(59, 130, 246, 0.1);
+    --up: #f43f5e;
+    /* 더 선명하고 고급스러운 레드 */
     --down: #3b82f6;
     --success: #10b981;
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-    --font: 'Noto Sans KR', sans-serif;
+    --radius-sm: 4px;
+    /* 날카롭고 직관적인 코너 */
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --font: 'Outfit', 'Noto Sans KR', sans-serif;
+    /* 더 모던한 폰트 조합 */
 }
 
 body {
@@ -64,7 +71,7 @@ input[type=number] {
     width: 320px;
     background: var(--bg-surface);
     border-right: 1px solid var(--border);
-    overflow-y: auto;
+    overflow: hidden;
     padding: 12px;
     display: flex;
     flex-direction: column;
@@ -75,6 +82,7 @@ input[type=number] {
     width: 340px;
     border-right: 1px solid var(--border);
     background: var(--bg-surface);
+    overflow: hidden;
     padding: 12px;
     display: flex;
     flex-direction: column;
@@ -82,9 +90,10 @@ input[type=number] {
 }
 
 .bt-panel-portfolio {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    height: 100%;
     margin-bottom: 0;
 }
 
@@ -92,7 +101,8 @@ input[type=number] {
     flex: 1;
     overflow-y: auto;
     padding: 24px;
-    background: var(--bg-base);
+    background: radial-gradient(circle at top right, #0a0f1e 0%, #030712 100%);
+    /* 미세한 그라데이션으로 깊이감 연출 */
 }
 
 .bt-panel {
@@ -102,7 +112,7 @@ input[type=number] {
 .bt-title {
     margin: 0 0 8px 0;
     font-size: 15px;
-    color: #fff;
+    color: #cbd5e1;
     font-weight: 700;
     display: flex;
     align-items: center;
@@ -189,7 +199,7 @@ input[type=number] {
     padding: 8px 16px;
     border-radius: var(--radius-sm);
     background: var(--accent);
-    color: #fff;
+    color: #cbd5e1;
     border: none;
     cursor: pointer;
     font-size: 13px;
@@ -226,7 +236,7 @@ input[type=number] {
 
 .bt-btn.danger:hover {
     background: var(--up);
-    color: #fff;
+    color: #cbd5e1;
 }
 
 .bt-flex-row {
@@ -253,8 +263,9 @@ input[type=number] {
 .bt-run-btn {
     width: 100%;
     padding: 8px 12px;
-    background: var(--accent);
-    color: #fff;
+    background: #0c2161;
+    /* Darker blue (approx 50% darker than 1d4ed8) */
+    color: #cbd5e1;
     border: none;
     border-radius: var(--radius-sm);
     font-size: 13px;
@@ -265,7 +276,7 @@ input[type=number] {
 }
 
 .bt-run-btn:hover:not(:disabled) {
-    background: var(--accent-hover);
+    background: #081640;
     box-shadow: 0 0 12px var(--accent-glow);
 }
 
@@ -276,34 +287,48 @@ input[type=number] {
 
 /* Stock list */
 .bt-stock-pick-area {
-    flex: 9;
-    min-height: 200px;
+    flex: 3;
+    min-height: 0;
     overflow-y: auto;
     background: var(--bg-input);
-    padding: 8px;
+    padding: 4px 0;
+    /* 좌우 패딩을 0으로 하고 item에서 처리 */
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     gap: 1px;
-    margin-top: 8px;
-    margin-bottom: 12px;
+    margin-top: 4px;
+    /* 4px(form-group mb) + 4px = 8px */
+    margin-bottom: 8px;
+    /* 12px -> 8px (Unify with left panels) */
+}
+
+.empty-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+    padding: 20px 10px;
+    flex-shrink: 0;
 }
 
 .stock-pick-item {
     display: flex;
     align-items: center;
-    height: 26px;
-    /* 높이 고정 — 선택 시 레이아웃 변화 방지 */
+    height: 20px;
+    /* 26px -> 20px (Compact) */
+    flex-shrink: 0;
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 400;
     cursor: pointer;
-    padding: 0 8px;
+    padding: 0 12px;
+    /* 넉넉한 좌우 패딩 */
+    gap: 2px;
+    /* 8px -> 2px (1/4 of original) */
     border-radius: 4px;
-    transition: background 0.1s, color 0.1s;
+    transition: all 0.1s;
     white-space: nowrap;
-    /* 줄바꿈 방지 */
     overflow: hidden;
     text-overflow: ellipsis;
     user-select: none;
@@ -322,30 +347,41 @@ input[type=number] {
 }
 
 .stock-pick-item.active {
-    background: var(--accent);
-    /* 배경을 accent로 채워 색상 반전 */
-    color: #fff;
-    font-weight: 400;
-    /* 굵기 변화 없음 — 너비 변화 방지 */
+    background: transparent;
+    color: var(--accent);
+    font-weight: 500;
 }
 
 .bt-stock-list {
     flex: 1;
-    min-height: 150px;
+    min-height: 0;
     overflow-y: auto;
-    padding-right: 4px;
+    padding: 4px 0;
+    /* 위아래 패딩만 */
+    margin-left: 1px;
+    /* 상단 박스의 보더 두께(1px)만큼 오프셋하여 텍스트 시작 위치 통일 */
+    /* Picker Area와 Horizontal Alignment 통일 */
 }
 
 .bt-stock-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 26px;
-    /* picker와 동일 높이 */
-    padding: 0 4px;
-    margin-bottom: 1px;
-    gap: 8px;
-    border-bottom: 1px solid var(--border-light);
+    height: 20px;
+    /* 26px -> 20px (Compact) */
+    padding: 0 12px;
+    /* Picker Item과 동일한 내부 간격 */
+    margin-bottom: 0;
+    /* 간격 제거 */
+    gap: 2px;
+    /* 8px -> 2px (1/4 of original) */
+    border-bottom: none;
+    border-radius: 4px;
+    transition: all 0.1s;
+}
+
+.bt-stock-item:hover {
+    background: var(--bg-hover);
 }
 
 .bt-stock-item:last-child {
@@ -355,8 +391,8 @@ input[type=number] {
 .bt-stock-name {
     flex: 1;
     font-size: 12px;
-    font-weight: 400;
-    /* picker와 동일 굵기 */
+    font-weight: 500;
+    /* 활성화된 종목이므로 약간 더 굵게 */
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
@@ -388,13 +424,15 @@ input[type=number] {
 
 .btn-remove-stock {
     cursor: pointer;
-    color: var(--up);
-    font-size: 16px;
-    opacity: 0.7;
-    transition: opacity 0.2s;
+    color: var(--text-muted);
+    /* 눈에 덜 거슬리는 색상으로 변경 */
+    font-size: 14px;
+    opacity: 0.5;
+    transition: all 0.2s;
 }
 
 .btn-remove-stock:hover {
+    color: var(--up);
     opacity: 1;
 }
 
@@ -473,20 +511,24 @@ input[type=number] {
 }
 
 .bt-card {
-    background: transparent;
+    background: rgba(15, 23, 42, 0.6);
+    /* 반투명으로 세련되게 */
     padding: 4px 12px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-light);
+    /* 다시 얇고 날카로운 선 추가 */
     display: flex;
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
     height: 32px;
+    backdrop-filter: blur(8px);
+    /* 글래스모피즘 효과 */
 }
 
 .bt-card:hover {
     border-color: var(--accent);
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(148, 163, 184, 0.02);
 }
 
 .bt-card .title {
@@ -520,10 +562,11 @@ input[type=number] {
 
 .bt-chart-wrap,
 .bt-log-wrap {
-    background: transparent;
+    background: rgba(15, 23, 42, 0.4);
     border-radius: var(--radius-md);
     border: 1px solid var(--border-light);
     overflow: hidden;
+    margin-bottom: 24px;
 }
 
 .bt-log-wrap {
@@ -543,26 +586,26 @@ input[type=number] {
 }
 
 .bt-log-table th {
-    background: var(--bg-surface);
+    background: rgba(2, 6, 23, 0.8);
     color: var(--text-secondary);
-    padding: 8px 12px;
+    padding: 10px 12px;
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
-    font-weight: 600;
+    font-weight: 700;
     font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 1px;
     text-align: center;
 }
 
 .bt-log-table td {
-    padding: 4px 12px;
-    border-bottom: 1px solid var(--border-light);
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.03);
+    /* 아주 희미하게 */
     color: var(--text-primary);
     white-space: nowrap;
     text-align: center;
-    /* Center-align for Date, Type, Cost */
 }
 
 .bt-log-table td:nth-child(4) {
@@ -580,7 +623,7 @@ input[type=number] {
 }
 
 .bt-log-table tr:hover {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(148, 163, 184, 0.02);
 }
 
 .bt-log-type {
@@ -642,7 +685,7 @@ input[type=number] {
     align-items: center;
     justify-content: center;
     z-index: 1000;
-    color: #fff;
+    color: #cbd5e1;
 }
 
 .spinner {
@@ -659,4 +702,31 @@ input[type=number] {
     100% {
         transform: rotate(360deg);
     }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #2a3f5f;
+    /* 기본보다 50% 정도 더 어두운 톤 */
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #3b82f6;
+}
+
+.bt-stock-pick-area::-webkit-scrollbar-thumb,
+.bt-stock-list::-webkit-scrollbar-thumb,
+.bt-log-wrap::-webkit-scrollbar-thumb {
+    background: #1e3050;
+    /* 특정 영역 스크롤바 더 짙게 조정 */
 }

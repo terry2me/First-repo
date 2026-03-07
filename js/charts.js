@@ -20,9 +20,9 @@ const Charts = (() => {
     candleUp: '#ef4444',
     candleDown: '#3b82f6',
     volume: 'rgba(156,163,175,0.4)',
-    grid: 'rgba(255,255,255,0.06)',
+    grid: 'rgba(148, 163, 184, 0.06)',
     text: '#94a3b8',
-    bg: '#1e293b',
+    bg: '#020617',
   };
 
   /** 공통 기본 옵션 (미니 차트용 — tooltip/axisPointer 없음) */
@@ -174,7 +174,7 @@ const Charts = (() => {
         },
         {
           name: '종가', type: 'line', data: closes,
-          lineStyle: { color: '#f8fafc', width: 1.5 },
+          lineStyle: { color: '#cbd5e1', width: 1.5 },
           symbol: 'none', connectNulls: true,
           itemStyle: { opacity: 0 },
         },
@@ -389,7 +389,7 @@ const Charts = (() => {
         {
           name: 'BUY신호', type: 'scatter', data: buyScatter,
           symbol: 'triangle', symbolSize: 10,
-          itemStyle: { color: COLOR.candleUp, borderColor: '#fff', borderWidth: 0.5 },
+          itemStyle: { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
           label: { show: true, formatter: 'B', position: 'bottom', color: COLOR.candleUp, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
@@ -397,7 +397,7 @@ const Charts = (() => {
         {
           name: 'SELL신호', type: 'scatter', data: sellScatter,
           symbol: 'triangle', symbolRotate: 180, symbolSize: 10,
-          itemStyle: { color: COLOR.candleDown, borderColor: '#fff', borderWidth: 0.5 },
+          itemStyle: { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
           label: { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
@@ -503,7 +503,7 @@ const Charts = (() => {
         {
           name: 'BUY신호', type: 'scatter', data: buyS,
           symbol: 'triangle', symbolSize: 10,
-          itemStyle: { color: COLOR.candleUp, borderColor: '#fff', borderWidth: 0.5 },
+          itemStyle: { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
           label: { show: true, formatter: 'B', position: 'bottom', color: COLOR.candleUp, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
@@ -511,7 +511,7 @@ const Charts = (() => {
         {
           name: 'SELL신호', type: 'scatter', data: sellS,
           symbol: 'triangle', symbolRotate: 180, symbolSize: 10,
-          itemStyle: { color: COLOR.candleDown, borderColor: '#fff', borderWidth: 0.5 },
+          itemStyle: { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
           label: { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700 },
           z: 5,
         },

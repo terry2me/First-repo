@@ -57,13 +57,23 @@ const BacktestUI = {
     initTabSelect() {
         const tabs = Storage.getTabs();
         const sel = document.getElementById('btTabSelect');
-        sel.innerHTML = '<option value="">-- 그룹 선택 --</option>';
+        sel.innerHTML = ''; // Start clean
+
+        if (tabs.length === 0) {
+            sel.innerHTML = '<option value="">그룹 없음</option>';
+            return;
+        }
+
         tabs.forEach(t => {
             const opt = document.createElement('option');
             opt.value = t.uid;
             opt.textContent = t.name;
             sel.appendChild(opt);
         });
+
+        // Select the first group by default
+        sel.value = tabs[0].uid;
+        this.renderStockPicker(tabs[0].uid);
 
         sel.addEventListener('change', (e) => {
             this.renderStockPicker(e.target.value);
@@ -510,13 +520,17 @@ const BacktestUI = {
             const bVal = data.beforeVal !== undefined ? data.beforeVal : (data.val || 0);
             const bWeight = data.beforeWeight !== undefined ? data.beforeWeight : 0;
 
+            // 티커 코드 대신 종목명 찾기
+            const stock = this.selectedStocks.find(s => s.ticker === triggerTicker || s.code === triggerTicker);
+            const displayName = stock ? stock.name : triggerTicker;
+
             html += `<span class="eval-item trigger-highlight" style="margin:0; padding:2px 8px;">
-                <b style="color:var(--text-primary)">${triggerTicker} (변경 전)</b>: 
+                <b style="color:var(--text-primary)">${displayName}</b>: 
                 ${fmt(Math.round(bVal))}원 <span style="font-size:10px;color:var(--text-muted)">(${bWeight.toFixed(1)}%)</span>
                 <small class="${cls}" style="margin-left:4px;">(${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%)</small>
             </span>`;
         } else {
-            // 전체 리스트 표시(매수, 최종 결과 등)는 기획에 따라 제거
+            // 전체 리포트는 기획상 생략
             return '';
         }
 
@@ -551,35 +565,36 @@ const BacktestUI = {
             xAxis: {
                 type: 'category',
                 data: dates,
-                axisLine: { lineStyle: { color: '#2a3f5f' } },
-                axisLabel: { color: '#94a3b8', fontSize: 10 }
+                axisLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
+                axisLabel: { color: '#94a3b8', fontSize: 10 },
+                axisTick: { show: false }
             },
             yAxis: {
                 type: 'value',
                 axisLabel: { formatter: '{value}%', color: '#94a3b8' },
-                splitLine: { lineStyle: { color: '#1e3050' } }
+                splitLine: { lineStyle: { color: 'rgba(255,255,255,0.03)' } }
             },
             series: [
                 {
                     name: '내 포트폴리오', type: 'line', data: seriesData, smooth: true, showSymbol: false,
-                    lineStyle: { color: '#3b82f6', width: 3 },
+                    lineStyle: { color: '#3b82f6', width: 2.5 },
                     areaStyle: {
                         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                            { offset: 0, color: 'rgba(59, 130, 246, 0.3)' },
+                            { offset: 0, color: 'rgba(59, 130, 246, 0.2)' },
                             { offset: 1, color: 'rgba(59, 130, 246, 0)' }
                         ])
                     }
                 },
                 {
                     name: 'KOSPI 200', type: 'line', data: bmkData, smooth: true, showSymbol: false,
-                    lineStyle: { color: '#64748b', width: 1.5, type: 'dashed' },
+                    lineStyle: { color: 'rgba(148, 163, 184, 0.5)', width: 1.5, type: 'dashed' },
                 },
                 {
                     name: 'S&P 500', type: 'line', data: sp500Data, smooth: true, showSymbol: false,
-                    lineStyle: { color: '#ef4444', width: 1.5, type: 'dashed' },
+                    lineStyle: { color: 'rgba(239, 68, 68, 0.4)', width: 1.5, type: 'dashed' },
                 }
             ],
-            grid: { top: 0, left: 0, right: 0, bottom: 0, containLabel: false }
+            grid: { top: '5%', left: '3%', right: '4%', bottom: '5%', containLabel: true }
         };
         myChart.setOption(option);
         window.addEventListener('resize', () => myChart.resize());
