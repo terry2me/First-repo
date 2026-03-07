@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <title>투자분석 - 종목발굴</title>
+    <link rel="stylesheet" href="../common/css/style.css" />
+    <link rel="stylesheet" href="discovery.css" />
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+</head>
+
+<body>
+    <div class="ds-layout">
+        <aside class="ds-sidebar">
+            <div class="ds-panel ds-scenario-panel ds-flex-row" style="margin-bottom: 8px; gap: 4px;">
+                <select id="dsScenarioSelect" class="ds-select"></select>
+                <button id="btnDsSaveScenario" class="ds-btn outline"
+                    style="flex-shrink: 0; padding: 0 8px; font-size: 12px; height: 28px;">저장</button>
+                <button id="btnDsDeleteScenario" class="ds-btn outline"
+                    style="flex-shrink: 0; padding: 0 8px; font-size: 12px; height: 28px;">삭제</button>
+            </div>
+
+            <div class="ds-panel">
+                <div class="ds-form-group">
+                    <label>초기 자본금</label>
+                    <input type="text" id="dsInitialCapital" value="10000000" />
+                </div>
+                <div class="ds-form-group">
+                    <label>매매 수수료 (%)</label>
+                    <input type="number" id="dsFeeRate" value="0.015" step="0.001" />
+                </div>
+                <div class="ds-form-group">
+                    <label>슬리피지/세금 (%)</label>
+                    <input type="number" id="dsTaxRate" value="0.2" step="0.01" />
+                </div>
+                <div class="ds-form-group">
+                    <label>조회 기간 (개월)</label>
+                    <input type="number" id="dsPeriodMonths" value="12" min="1" />
+                </div>
+            </div>
+
+            <div class="ds-panel">
+                <div class="ds-subtitle">발굴 목표 (Target)</div>
+                <div class="ds-radio-grid">
+                    <label><input type="radio" name="dsMetric" value="return"> 절대수익</label>
+                    <label><input type="radio" name="dsMetric" value="sharpe" checked> 샤프지수</label>
+                    <label><input type="radio" name="dsMetric" value="romad"> RoMAD</label>
+                    <label><input type="radio" name="dsMetric" value="sortino"> 소르티노</label>
+                </div>
+                <div class="ds-form-group" style="margin-top: 10px;">
+                    <label>구성 종목 수</label>
+                    <input type="number" id="dsTargetStockCount" value="2" min="1" max="10" />
+                </div>
+            </div>
+
+            <div class="ds-panel">
+                <div class="ds-subtitle">리밸런싱 설정</div>
+                <div class="ds-radio-group">
+                    <label><input type="radio" name="rebalanceType" value="none"> 안함</label>
+                    <label><input type="radio" name="rebalanceType" value="period"> 정기</label>
+                    <label><input type="radio" name="rebalanceType" value="deviation" checked> 편차</label>
+                </div>
+                <div id="rebalancePeriodRow" class="ds-form-group flex-row" style="display:none;">
+                    <label>주기</label>
+                    <select id="dsRebalancePeriod" class="ds-select">
+                        <option value="1wk">1주일</option>
+                        <option value="2wk">2주일</option>
+                        <option value="1mo" checked>1개월</option>
+                        <option value="3mo">3개월</option>
+                        <option value="6mo">6개월</option>
+                        <option value="1yr">1년</option>
+                    </select>
+                </div>
+                <div id="rebalanceDeviationRow" class="ds-form-group flex-row" style="display:none;">
+                    <label>편차(%)</label>
+                    <input type="number" id="dsRebalanceThreshold" value="5" min="1" />
+                </div>
+            </div>
+
+            <button id="btnRunDiscovery" class="ds-run-btn">시작</button>
+        </aside>
+
+        <aside class="ds-sidebar ds-sidebar-portfolio">
+            <div class="ds-panel ds-panel-portfolio">
+                <div class="ds-form-group" style="margin-bottom: 4px;">
+                    <select id="dsTabSelect" class="ds-select"></select>
+                </div>
+                <div id="dsStockPickArea" class="ds-stock-pick-area">
+                    <p class="empty-hint">그룹을 먼저 선택하세요.</p>
+                </div>
+                <div id="dsStockList" class="ds-stock-list"></div>
+            </div>
+        </aside>
+
+        <main class="ds-main">
+            <div id="dsEmptyState" class="ds-empty-state">
+                <i class="fas fa-chart-pie"></i>
+                <p>포트폴리오를 구성하고 종목발굴을 실행하세요.</p>
+            </div>
+
+            <div id="dsResultState" class="ds-result-state" style="display:none;">
+                <div class="ds-summary-cards">
+                    <div class="ds-card">
+                        <div class="title">누적 수익률</div>
+                        <div id="resTotalReturn" class="value">--</div>
+                    </div>
+                    <div class="ds-card">
+                        <div class="title">누적 수익</div>
+                        <div id="resTotalProfit" class="value">--</div>
+                    </div>
+                    <div class="ds-card">
+                        <div class="title">CAGR (연환산)</div>
+                        <div id="resCAGR" class="value">--</div>
+                    </div>
+                    <div class="ds-card">
+                        <div class="title">MDD (최대낙폭)</div>
+                        <div id="resMDD" class="value down">--</div>
+                    </div>
+                    <div class="ds-card sm">
+                        <div class="title">Sharpe</div>
+                        <div id="resSharpe" class="value sm">--</div>
+                    </div>
+                    <div class="ds-card sm">
+                        <div class="title">Sortino</div>
+                        <div id="resSortino" class="value sm">--</div>
+                    </div>
+                    <div class="ds-card sm">
+                        <div class="title">Calmar</div>
+                        <div id="resCalmar" class="value sm">--</div>
+                    </div>
+                    <div class="ds-card sm">
+                        <div class="title">Info Ratio</div>
+                        <div id="resIR" class="value sm">--</div>
+                    </div>
+                </div>
+
+                <div class="ds-chart-wrap">
+                    <div id="dsMainChart" class="ds-main-chart"></div>
+                </div>
+
+                <div class="ds-log-wrap"
+                    style="height: 400px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; background: rgba(0,0,0,0.2);">
+                    <table class="ds-log-table">
+                        <thead id="dsLogHead"
+                            style="position: sticky; top: 0; z-index: 10; background: var(--card-bg);">
+                            <tr>
+                                <th style="width: 50px;">순위</th>
+                                <th>종목 조합</th>
+                                <th style="width: 90px;" id="thMetricValue">지표값</th>
+                                <th style="width: 90px;">수익률</th>
+                                <th style="width: 90px;">MDD</th>
+                                <th style="width: 80px;">상세</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dsLogBody">
+                            <tr>
+                                <td colspan="6"
+                                    style="text-align:center; padding: 60px; color: var(--text-muted); font-size: 14px;">
+                                    <i class="fas fa-search"
+                                        style="font-size: 24px; display: block; margin-bottom: 10px; opacity: 0.5;"></i>
+                                    [시작] 버튼을 눌러 최적의 포트폴리오를 발굴하세요.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="dsLoading" class="ds-loading" style="display:none;">
+        <div class="spinner"></div>
+        <span id="dsLoadingProgress">데이터를 수집 중입니다...</span>
+    </div>
+
+    <!-- Toast -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="../common/js/config.js"></script>
+    <script src="../common/js/storage.js"></script>
+    <script src="../common/js/api.js"></script>
+    <script>
+        // Utils needed by discovery.js
+        function fmt(num) {
+            if (typeof num !== 'number') return num;
+            return num.toLocaleString();
+        }
+        function fmtPct(num) {
+            if (typeof num !== 'number') return num;
+            const prefix = num > 0 ? '+' : '';
+            return prefix + num.toFixed(2) + '%';
+        }
+        function showToast(msg, type = 'info') {
+            const c = document.getElementById('toastContainer');
+            if (!c) return;
+            const t = document.createElement('div');
+            t.className = 'toast ' + type;
+            t.textContent = msg;
+            c.appendChild(t);
+            setTimeout(() => t.remove(), 3000);
+        }
+    </script>
+    <script src="discovery.js"></script>
+</body>
+
+</html>

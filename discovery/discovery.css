@@ -1,0 +1,748 @@
+/* discovery.css */
+:root {
+    box-sizing: border-box;
+}
+
+*,
+*:before,
+*:after {
+    box-sizing: inherit;
+}
+
+:root {
+    --bg-base: #020617;
+    /* 극강의 블랙 */
+    --bg-surface: #0f172a;
+    /* 선명한 서피스 */
+    --bg-card: #1e293b;
+    --bg-hover: #1e293b;
+    --bg-input: #010413;
+    --border: rgba(148, 163, 184, 0.1);
+    /* 선격있고 날카로운 경계선 */
+    --border-light: rgba(148, 163, 184, 0.05);
+    --text-primary: #94a3b8;
+    /* Significantly darker for eye comfort */
+    --text-secondary: #64748b;
+    --text-muted: #475569;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --accent-glow: rgba(59, 130, 246, 0.1);
+    --up: #f43f5e;
+    /* 더 선명하고 고급스러운 레드 */
+    --down: #3b82f6;
+    --success: #10b981;
+    --radius-sm: 4px;
+    /* 날카롭고 직관적인 코너 */
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --font: 'Outfit', 'Noto Sans KR', sans-serif;
+    /* 더 모던한 폰트 조합 */
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 13px;
+}
+
+.ds-layout {
+    display: flex;
+    height: 100%;
+}
+
+/* Hide number input spinner arrows globally in discovery */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type=number] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.ds-sidebar {
+    width: 320px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.ds-sidebar-portfolio {
+    width: 340px;
+    border-right: 1px solid var(--border);
+    background: var(--bg-surface);
+    overflow: hidden;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.ds-panel-portfolio {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 0;
+}
+
+.ds-main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    background: radial-gradient(circle at top right, #0a0f1e 0%, #030712 100%);
+    /* 미세한 그라데이션으로 깊이감 연출 */
+}
+
+.ds-panel {
+    margin-bottom: 8px;
+}
+
+.ds-title {
+    margin: 0 0 8px 0;
+    font-size: 15px;
+    color: #cbd5e1;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ds-title i {
+    color: var(--accent);
+}
+
+.ds-subtitle {
+    margin: 8px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+.ds-form-group {
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ds-form-group label {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    width: 100px;
+    flex-shrink: 0;
+    text-align: left;
+}
+
+.ds-form-group input,
+.ds-form-group select {
+    flex: 1;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    box-sizing: border-box;
+    font-family: inherit;
+    font-size: 12px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.ds-form-group input {
+    padding: 6px 10px;
+}
+
+.ds-form-group input:focus,
+.ds-form-group select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-glow);
+}
+
+.ds-form-group.flex-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.ds-form-group.flex-row label {
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+.ds-select {
+    width: 100%;
+    padding: 0 8px;
+    height: 28px;
+    line-height: normal;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-input);
+    color: var(--text-primary);
+    font-size: 12px;
+    display: inline-block;
+}
+
+.ds-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: #cbd5e1;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.ds-btn:hover {
+    background: var(--accent-hover);
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.ds-btn.outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+
+.ds-btn.outline:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--text-muted);
+}
+
+.ds-btn.danger {
+    color: var(--up);
+    border: 1px solid var(--up);
+    background: transparent;
+}
+
+.ds-btn.danger:hover {
+    background: var(--up);
+    color: #cbd5e1;
+}
+
+.ds-flex-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.ds-radio-group {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 12px;
+}
+
+.ds-radio-group label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ds-radio-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.ds-radio-grid label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ds-run-btn {
+    width: 100%;
+    padding: 8px 12px;
+    background: #0c2161;
+    /* Darker blue (approx 50% darker than 1d4ed8) */
+    color: #cbd5e1;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-top: auto;
+}
+
+.ds-run-btn:hover:not(:disabled) {
+    background: #081640;
+    box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.ds-run-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Stock list */
+.ds-stock-pick-area {
+    flex: 3;
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--bg-input);
+    padding: 4px 0;
+    /* 좌우 패딩을 0으로 하고 item에서 처리 */
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin-top: 4px;
+    /* 4px(form-group mb) + 4px = 8px */
+    margin-bottom: 8px;
+    /* 12px -> 8px (Unify with left panels) */
+}
+
+.empty-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: center;
+    padding: 20px 10px;
+    flex-shrink: 0;
+}
+
+.stock-pick-item {
+    display: flex;
+    align-items: center;
+    height: 20px;
+    /* 26px -> 20px (Compact) */
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+    cursor: pointer;
+    padding: 0 12px;
+    /* 넉넉한 좌우 패딩 */
+    gap: 2px;
+    /* 8px -> 2px (1/4 of original) */
+    border-radius: 4px;
+    transition: all 0.1s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+}
+
+.stock-pick-item .name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stock-pick-item:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.stock-pick-item.active {
+    background: transparent;
+    color: var(--accent);
+    font-weight: 500;
+}
+
+.ds-stock-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 0;
+    /* 위아래 패딩만 */
+    margin-left: 1px;
+    /* 상단 박스의 보더 두께(1px)만큼 오프셋하여 텍스트 시작 위치 통일 */
+    /* Picker Area와 Horizontal Alignment 통일 */
+}
+
+.ds-stock-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 20px;
+    /* 26px -> 20px (Compact) */
+    padding: 0 12px;
+    /* Picker Item과 동일한 내부 간격 */
+    margin-bottom: 0;
+    /* 간격 제거 */
+    gap: 2px;
+    /* 8px -> 2px (1/4 of original) */
+    border-bottom: none;
+    border-radius: 4px;
+    transition: all 0.1s;
+}
+
+.ds-stock-item:hover {
+    background: var(--bg-hover);
+}
+
+.ds-stock-item:last-child {
+    border-bottom: none;
+}
+
+.ds-stock-name {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 500;
+    /* 활성화된 종목이므로 약간 더 굵게 */
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.weight-input {
+    width: 44px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    text-align: right;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.weight-input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.unit-text {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.btn-remove-stock {
+    cursor: pointer;
+    color: var(--text-muted);
+    /* 눈에 덜 거슬리는 색상으로 변경 */
+    font-size: 14px;
+    opacity: 0.5;
+    transition: all 0.2s;
+}
+
+.btn-remove-stock:hover {
+    color: var(--up);
+    opacity: 1;
+}
+
+/* Weight Sum */
+.ds-weight-sum-wrap {
+    margin-top: auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.ds-weight-sum-track {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-input);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.ds-weight-sum-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.3s;
+}
+
+.ds-weight-sum-fill.ok {
+    background: var(--success);
+}
+
+.ds-weight-sum-fill.error {
+    background: var(--up);
+}
+
+.ds-weight-sum-text {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    width: 40px;
+    text-align: right;
+}
+
+/* Main Content */
+.ds-empty-state {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+}
+
+.ds-empty-state i {
+    font-size: 64px;
+    margin-bottom: 24px;
+    opacity: 0.3;
+}
+
+.ds-result-state {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.ds-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(2, auto);
+    gap: 2px;
+    margin-bottom: 8px;
+    margin-top: 8px;
+}
+
+.ds-card {
+    background: rgba(15, 23, 42, 0.6);
+    /* 반투명으로 세련되게 */
+    padding: 4px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    /* 다시 얇고 날카로운 선 추가 */
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    height: 32px;
+    backdrop-filter: blur(8px);
+    /* 글래스모피즘 효과 */
+}
+
+.ds-card:hover {
+    border-color: var(--accent);
+    background: rgba(148, 163, 184, 0.02);
+}
+
+.ds-card .title {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-bottom: 0;
+}
+
+.ds-card .value {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.ds-card .value.up {
+    color: var(--success);
+}
+
+.ds-card .value.down {
+    color: var(--up);
+}
+
+.ds-card.sm {
+    padding: 6px 14px;
+}
+
+.ds-card.sm .value {
+    font-size: 14px;
+}
+
+.ds-chart-wrap,
+.ds-log-wrap {
+    background: rgba(15, 23, 42, 0.4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.ds-log-wrap {
+    padding: 0;
+}
+
+.ds-main-chart {
+    width: 100%;
+    height: 200px;
+}
+
+.ds-log-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: right;
+    font-size: 12px;
+}
+
+.ds-log-table th {
+    background: rgba(2, 6, 23, 0.8);
+    color: var(--text-secondary);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: center;
+}
+
+.ds-log-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.03);
+    /* 아주 희미하게 */
+    color: var(--text-primary);
+    white-space: nowrap;
+    text-align: center;
+}
+
+.ds-log-table td:nth-child(4) {
+    /* Evaluation Detail */
+    white-space: normal;
+    text-align: left;
+}
+
+.ds-log-table tr:last-child td {
+    border-bottom: none;
+}
+
+.ds-log-table tr {
+    transition: background 0.1s;
+}
+
+.ds-log-table tr:hover {
+    background: rgba(148, 163, 184, 0.02);
+}
+
+.ds-log-type {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.ds-log-type.buy {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+}
+
+.ds-log-type.sell {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+}
+
+.ds-log-type.rebalance {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+}
+
+.ds-log-type.cash-in {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+}
+
+.ds-log-table .up {
+    color: var(--success);
+}
+
+.ds-log-table .down {
+    color: var(--up);
+}
+
+.eval-item {
+    margin: 0;
+    display: inline-block;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.eval-item.trigger-highlight {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.ds-loading {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(11, 17, 32, 0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    color: #cbd5e1;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 16px;
+}
+
+@keyframes spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #2a3f5f;
+    /* 기본보다 50% 정도 더 어두운 톤 */
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #3b82f6;
+}
+
+.ds-stock-pick-area::-webkit-scrollbar-thumb,
+.ds-stock-list::-webkit-scrollbar-thumb,
+.ds-log-wrap::-webkit-scrollbar-thumb {
+    background: #1e3050;
+    /* 특정 영역 스크롤바 더 짙게 조정 */
+}
