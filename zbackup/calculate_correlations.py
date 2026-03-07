@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 
 # DB 경로
-DB_PATH = Path(__file__).parent / "stock.db"
+DB_PATH = Path(__file__).parent.parent / "stock.db"
 
 def calculate_correlations():
     try:

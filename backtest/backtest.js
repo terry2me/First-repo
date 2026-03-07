@@ -547,6 +547,7 @@ const BacktestUI = {
         const dates = result.dates;
 
         const option = {
+            animation: false,
             backgroundColor: 'transparent',
             tooltip: {
                 trigger: 'axis',

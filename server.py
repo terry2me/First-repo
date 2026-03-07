@@ -1253,7 +1253,7 @@ async def correlations_sync():
         import subprocess
         # 비동기 상황에서 스레딩/프로세스 블락이 생길 수 있으므로 스크립트 실행으로 위임
         try:
-            subprocess.run(["python", str(BASE_DIR / "calculate_correlations.py")], check=True)
+            subprocess.run(["python", str(BASE_DIR / "zbackup" / "calculate_correlations.py")], check=True)
             return True
         except subprocess.CalledProcessError:
             return False
@@ -1269,8 +1269,8 @@ async def correlations_sync():
 
 
 # ── 정적 파일 서빙 (HTML/CSS/JS) ───────────────────────────
-app.mount("/css", StaticFiles(directory=str(BASE_DIR / "css")), name="css")
-app.mount("/js",  StaticFiles(directory=str(BASE_DIR / "js")),  name="js")
+app.mount("/common", StaticFiles(directory=str(BASE_DIR / "common")), name="common")
+app.mount("/watchlist", StaticFiles(directory=str(BASE_DIR / "watchlist"), html=True), name="watchlist")
 app.mount("/backtest", StaticFiles(directory=str(BASE_DIR / "backtest"), html=True), name="backtest")
 
 @app.get("/")
@@ -1279,7 +1279,7 @@ async def root():
 
 @app.get("/watchlist.html")
 async def watchlist():
-    return FileResponse(str(BASE_DIR / "watchlist.html"))
+    return FileResponse(str(BASE_DIR / "watchlist" / "index.html"))
 
 @app.get("/favicon.ico")
 async def favicon():
