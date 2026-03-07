@@ -45,14 +45,26 @@
             <div class="ds-panel">
                 <div class="ds-subtitle">발굴 목표 (Target)</div>
                 <div class="ds-radio-grid">
-                    <label><input type="radio" name="dsMetric" value="return"> 절대수익</label>
-                    <label><input type="radio" name="dsMetric" value="sharpe" checked> 샤프지수</label>
+                    <label><input type="radio" name="dsMetric" value="return" checked> 최대수익</label>
+                    <label><input type="radio" name="dsMetric" value="sharpe"> 샤프지수</label>
                     <label><input type="radio" name="dsMetric" value="romad"> RoMAD</label>
                     <label><input type="radio" name="dsMetric" value="sortino"> 소르티노</label>
                 </div>
                 <div class="ds-form-group" style="margin-top: 10px;">
                     <label>구성 종목 수</label>
                     <input type="number" id="dsTargetStockCount" value="2" min="1" max="10" />
+                </div>
+            </div>
+
+            <div class="ds-panel">
+                <div class="ds-subtitle">검색 옵션</div>
+                <div class="ds-checkbox-group">
+                    <label title="DB에 저장된 상관관계 정보를 활용해 분산된 포트폴리오(음의 상관관계) 위주로 탐색을 시작합니다.">
+                        <input type="checkbox" id="dsUseCorrelation"> 상관관계 우선 시딩
+                    </label>
+                    <label title="단순 수익률 대신 '수익률 / 변동성(표준편차)'을 최적화 지표로 사용합니다. 변동성이 낮은 우량 종목이 선택될 확률이 높아집니다.">
+                        <input type="checkbox" id="dsUseRiskAdjusted"> 변동성 대비 수익 최적화
+                    </label>
                 </div>
             </div>
 
@@ -102,6 +114,9 @@
             </div>
 
             <div id="dsResultState" class="ds-result-state" style="display:none;">
+                <div id="dsAnalysisTarget"
+                    style="font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 2px; padding-left: 4px;">
+                    --</div>
                 <div class="ds-summary-cards">
                     <div class="ds-card">
                         <div class="title">누적 수익률</div>
@@ -141,18 +156,17 @@
                     <div id="dsMainChart" class="ds-main-chart"></div>
                 </div>
 
-                <div class="ds-log-wrap"
-                    style="border: 1px solid var(--border-color); border-radius: 6px; background: rgba(0,0,0,0.2);">
+                <div class="ds-log-wrap">
                     <table class="ds-log-table">
                         <thead id="dsLogHead"
-                            style="position: sticky; top: 0; z-index: 10; background: var(--card-bg);">
+                            style="position: sticky; top: 0; z-index: 10; background: var(--bg-surface);">
                             <tr>
-                                <th style="width: 50px;">순위</th>
+                                <th style="width: 85px; cursor:pointer;" data-sort="rank">순위</th>
                                 <th>종목 조합</th>
-                                <th style="width: 90px;" id="thMetricValue">지표값</th>
-                                <th style="width: 90px;">수익률</th>
-                                <th style="width: 90px;">MDD</th>
-                                <th style="width: 80px;">상세</th>
+                                <th style="width: 80px; cursor:pointer;" data-sort="corr">상관관계</th>
+                                <th style="width: 80px; cursor:pointer;" id="thMetricValue" data-sort="fitness">지표값</th>
+                                <th style="width: 45px; cursor:pointer;" data-sort="return">수익률</th>
+                                <th style="width: 45px; cursor:pointer;" data-sort="mdd">MDD</th>
                             </tr>
                         </thead>
                         <tbody id="dsLogBody">

@@ -964,7 +964,9 @@ function buildListItem(stock, data) {
 }
 
 function highlightActiveRow(code) {
-  document.querySelectorAll('.stock-item').forEach(el =>
+  const container = document.getElementById('stockList');
+  if (!container) return;
+  container.querySelectorAll('.stock-item').forEach(el =>
     el.classList.toggle('row-active', el.dataset.code === code)
   );
 }
@@ -1627,27 +1629,39 @@ function initIndexSyncBtn(btnId, apiUrl, tabName, htmlContent) {
 ══════════════════════════════════════════════ */
 function initKeyboardNavigation() {
   window.addEventListener('keydown', e => {
-    // 입력창이 활성화된 경우 무시
+    // 1. 입력창이 활성화된 경우 무시
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
 
+    // 2. 관심종목 탭이 활성 상태일 때만 작동 (다른 탭과의 간섭 방지)
+    const watchlistTab = document.getElementById('tab-watchlist');
+    if (!watchlistTab || watchlistTab.classList.contains('hidden') || watchlistTab.style.display === 'none') return;
+
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const items = Array.from(document.querySelectorAll('.stock-item'));
+      const listEl = document.getElementById('stockList');
+      if (!listEl) return;
+
+      // 해당 리스트 내의 아이템만 조회 (중요: 다른 탭의 .stock-item과 혼동 방지)
+      const items = Array.from(listEl.querySelectorAll('.stock-item'));
       if (!items.length) return;
 
       // 현재 활성화된 종목의 인덱스 찾기
-      const currentIndex = items.findIndex(el => el.dataset.code === AppState.previewCode);
-      let nextIndex;
+      // (단순 previewCode 기반 검색은 중복 종목 시 문제를 일으키므로, 시각적 하이라이트 기준 우선)
+      let currentIndex = items.findIndex(el => el.classList.contains('row-active'));
+      if (currentIndex === -1 && AppState.previewCode) {
+        currentIndex = items.findIndex(el => el.dataset.code === AppState.previewCode);
+      }
 
+      let nextIndex;
       if (e.key === 'ArrowDown') {
         if (currentIndex === -1) nextIndex = 0;
         else nextIndex = Math.min(items.length - 1, currentIndex + 1);
       } else { // ArrowUp
-        if (currentIndex === -1) return; // 선택된 게 없으면 위로 갈 곳이 없음
+        if (currentIndex === -1) return;
         nextIndex = Math.max(0, currentIndex - 1);
       }
 
       if (nextIndex !== undefined && nextIndex !== currentIndex) {
-        e.preventDefault(); // 화면 스크롤 방지
+        e.preventDefault();
         const targetItem = items[nextIndex];
         const targetCode = targetItem.dataset.code;
 

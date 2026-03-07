@@ -192,10 +192,7 @@ const API = (() => {
           results.push(null);
         });
       }
-      // 요청 간 0.5초(500ms) 지연 (Yahoo Rate Limit 방지)
-      if (i + CHUNK_SIZE < stocks.length) {
-        await _sleep(500);
-      }
+      /* Removed manual delay as requested */
     }
     return results;
   }

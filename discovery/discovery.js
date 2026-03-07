@@ -3,107 +3,266 @@
  */
 
 /**
- * DiscoveryGASolver: 유전자 알고리즘 기반 포트폴리오 발굴 엔진
+ * DiscoveryPSOSolver: 입자 군집 최적화(PSO) 기반 포트폴리오 발굴 엔진
+ *
+ * - 연속 공간에서 속도/위치를 업데이트한 후 이산화(반올림)하여 종목 인덱스로 변환
+ * - 관성 가중치 선형 감소(wMax→wMin)로 초기 탐색 → 후기 수렴 자동 조절
+ * - 모든 입자의 모든 반복 조합을 아카이브에 기록하여 TOP 50 추출
  */
-class DiscoveryGASolver {
+class DiscoveryPSOSolver {
     constructor(pool, config) {
         this.pool = pool;
         this.config = config;
-        this.population = [];
-        this.generations = config.generations || 40;
-        this.popSize = config.popSize || 60;
+        this.swarmSize = config.swarmSize || 150;
+        this.maxIter = config.maxIter || 100;
+        this.wMax = config.wMax ?? 1.1;
+        this.wMin = config.wMin ?? 0.5;
+        this.c1 = config.c1 ?? 1.5;
+        this.c2 = config.c2 ?? 1.5;
+        this.mutProb = config.mutProb ?? 0.25;
+        this.swarm = [];
+        this.gBest = null;
         this.stockReturns = {};
         this.dates = [];
     }
 
+    // ──────────────────────────────────────────────
+    // 데이터 준비 (기존 GA와 동일)
+    // ──────────────────────────────────────────────
     async prepareData(periodMonths) {
         const now = new Date();
         const start = new Date(now.getFullYear(), now.getMonth() - periodMonths, now.getDate());
         const startStr = start.toISOString().substring(0, 10);
-        const candleCount = Math.ceil(periodMonths * 23) + 30;
 
+        const candleCount = Math.ceil(periodMonths * 23) + 30;
         const batchData = await API.fetchBatch(
             this.pool.map(s => ({ code: s.code, market: s.market })),
             candleCount,
             '1d'
         );
 
-        let commonDates = null;
-        batchData.forEach((res) => {
-            if (res && res.allCandles && res.allCandles.length > 10) {
+        // [복구] 가장 긴 날짜 배열을 기준으로 설정 (신규주에 의해 기간이 짤리는 현상 방지)
+        let maxDates = [];
+        batchData.forEach(res => {
+            if (res && res.allCandles) {
                 const dates = res.allCandles.map(c => c.date).filter(d => d >= startStr);
-                if (!commonDates) commonDates = dates;
-                else commonDates = commonDates.filter(d => dates.includes(d));
+                if (dates.length > maxDates.length) maxDates = dates;
             }
         });
+        this.dates = maxDates.sort();
 
-        if (!commonDates || commonDates.length < 5) throw new Error("공통 데이터 구간이 부족합니다.");
-        this.dates = commonDates.sort();
+        // 최소 90% 이상의 데이터가 있는 종목만 사용
+        const requiredCount = Math.floor(this.dates.length * 0.9);
+        this.stockCache = {};
+        this.candleMaps = {};
+        const validPool = [];
 
         this.pool.forEach((s, i) => {
             const res = batchData[i];
             if (res && res.allCandles) {
-                s.ticker = res.ticker; // Save ticker from API response
-                const dateMap = new Map(res.allCandles.map(c => [c.date, c.close]));
-                const returns = new Float64Array(this.dates.length - 1);
-                for (let j = 1; j < this.dates.length; j++) {
-                    const curr = dateMap.get(this.dates[j]);
-                    const prev = dateMap.get(this.dates[j - 1]);
-                    if (curr && prev) returns[j - 1] = (curr / prev) - 1;
+                const candleMap = new Map(res.allCandles.map(c => [c.date, c.close]));
+                const sPrice = candleMap.get(this.dates[0]);
+                const ePrice = candleMap.get(this.dates[this.dates.length - 1]);
+                const existingCount = res.allCandles.filter(c => c.date >= startStr).length;
+
+                if (sPrice && ePrice && existingCount >= requiredCount) {
+                    s.ticker = res.ticker;
+                    let peak = 1, mdd = 0;
+                    const dayReturns = [];
+                    let lastPrice = sPrice;
+
+                    this.dates.forEach(d => {
+                        const curr = candleMap.get(d) || lastPrice;
+                        const dailyRet = (curr / lastPrice) - 1;
+                        dayReturns.push(dailyRet);
+                        const currentNav = curr / sPrice;
+                        if (currentNav > peak) peak = currentNav;
+                        const dd = (currentNav / peak) - 1;
+                        if (dd < mdd) mdd = dd;
+                        lastPrice = curr;
+                    });
+
+                    this.stockCache[s.code] = {
+                        totalReturn: (ePrice / sPrice) - 1,
+                        mdd: mdd,
+                        dayReturns: dayReturns,
+                        correlations: res.correlations // Store correlation info
+                    };
+                    this.candleMaps[s.code] = candleMap;
+                    validPool.push(s);
                 }
-                this.stockReturns[s.code] = returns;
             }
         });
 
-        this.pool = this.pool.filter(s => this.stockReturns[s.code]);
+        this.pool = validPool.sort((a, b) => (this.stockCache[b.code].totalReturn - this.stockCache[a.code].totalReturn));
+        if (this.pool.length === 0) throw new Error("전체 분석 기간의 데이터를 90% 이상 보유한 종목이 없습니다.");
     }
 
-    initPopulation() {
-        this.population = [];
-        for (let i = 0; i < this.popSize; i++) {
-            this.population.push(this.getRandomIndividual());
+    // ──────────────────────────────────────────────
+    // 군집 초기화
+    // ──────────────────────────────────────────────
+    initSwarm() {
+        this.swarm = [];
+        const poolSize = this.pool.length;
+        const dim = this.config.targetCount;
+        this.vMax = poolSize * 0.3;
+
+        // 1. [Elite Seeding] 0번 입자는 항상 현재 풀에서 가장 수익률이 높은 상위 종목들로 구성
+        const eliteIndices = [];
+        for (let i = 0; i < Math.min(dim, poolSize); i++) eliteIndices.push(i);
+        const eliteParticle = {
+            position: eliteIndices.map(idx => idx),
+            velocity: new Array(dim).fill(0),
+            genes: [...eliteIndices],
+            pBest: [...eliteIndices],
+            pBestFit: -Infinity,
+            fitness: -Infinity,
+            stats: null
+        };
+        this.swarm.push(eliteParticle);
+
+        // 2. [Correlation Seeding] 상관관계 옵션이 켜져 있으면 일부 입자를 음의 상관관계 조합으로 초기화
+        let startIdx = 1;
+        if (this.config.useCorrelation) {
+            const numCorrSeeds = Math.floor(this.swarmSize * 0.25); // 25% 정도는 상관관계 기반으로 시딩
+            const codeToIndexMap = new Map(this.pool.map((s, idx) => [s.code, idx]));
+
+            for (let i = 0; i < numCorrSeeds; i++) {
+                const indices = [];
+                const used = new Set();
+
+                // [유형] 상위 수익률 종목 + 그 종목과 가장 상관관계가 낮은 종목을 50/50으로 믹스
+                // 상위 20% 이내에서 앵커(Anchor) 종목을 랜덤하게 선택
+                const anchorRange = Math.max(1, Math.floor(poolSize * 0.2));
+
+                while (indices.length < dim) {
+                    let seedIdx = Math.floor(Math.random() * anchorRange);
+
+                    // 중복 피하기 시도
+                    let attempts = 0;
+                    while (used.has(seedIdx) && attempts < anchorRange) {
+                        seedIdx = (seedIdx + 1) % anchorRange;
+                        attempts++;
+                    }
+
+                    if (!used.has(seedIdx)) {
+                        indices.push(seedIdx);
+                        used.add(seedIdx);
+
+                        // 짝꿍(상관관계가 가장 낮은 종목) 매칭
+                        const stock = this.pool[seedIdx];
+                        const negCode = this.stockCache[stock.code]?.correlations?.neg?.code;
+                        if (negCode && codeToIndexMap.has(negCode)) {
+                            const negIdx = codeToIndexMap.get(negCode);
+                            if (!used.has(negIdx) && indices.length < dim) {
+                                indices.push(negIdx);
+                                used.add(negIdx);
+                            }
+                        }
+                    }
+
+                    // 앵커 범위 내에서 더 이상 뽑을 게 없거나 순환이 안되면 전체 풀에서 보충
+                    if (attempts >= anchorRange && indices.length < dim) {
+                        let fallbackIdx = Math.floor(Math.random() * poolSize);
+                        if (!used.has(fallbackIdx)) {
+                            indices.push(fallbackIdx);
+                            used.add(fallbackIdx);
+                        }
+                    }
+                }
+
+                if (indices.length === dim) {
+                    this.swarm.push(this._createParticleFromIndices(indices, dim));
+                } else {
+                    this.swarm.push(this.createRandomParticle(poolSize, dim));
+                }
+            }
+            startIdx = this.swarm.length;
         }
-    }
 
-    getRandomIndividual() {
-        const genes = [];
-        const poolIndices = Array.from({ length: this.pool.length }, (_, i) => i);
-        for (let i = 0; i < this.config.targetCount; i++) {
-            if (poolIndices.length === 0) break;
-            const idx = Math.floor(Math.random() * poolIndices.length);
-            genes.push(poolIndices.splice(idx, 1)[0]);
+        // 3. 나머지 입자는 랜덤 생성
+        for (let i = startIdx; i < this.swarmSize; i++) {
+            const particle = this.createRandomParticle(poolSize, dim);
+            this.swarm.push(particle);
         }
-        return { genes, fitness: -Infinity, stats: null };
+        this.gBest = null;
     }
 
-    evaluate(individual) {
-        const n = this.dates.length - 1;
-        const stockCount = individual.genes.length;
-        if (stockCount === 0) return;
+    _createParticleFromIndices(indices, dim) {
+        const position = indices.map(i => i);
+        const velocity = new Array(dim).fill(0).map(() =>
+            (Math.random() - 0.5) * 2 * this.vMax * 0.1
+        );
+        return {
+            position,
+            velocity,
+            genes: [...indices],
+            pBest: [...indices],
+            pBestFit: -Infinity,
+            fitness: -Infinity,
+            stats: null
+        };
+    }
+
+    createRandomParticle(poolSize, dim) {
+        // 랜덤 위치: 풀에서 중복 없이 K개 선택 (연속 값으로 저장)
+        const indices = [];
+        const used = new Set();
+        while (indices.length < dim) {
+            const idx = Math.floor(Math.random() * poolSize);
+            if (!used.has(idx)) { indices.push(idx); used.add(idx); }
+        }
+
+        const position = indices.map(i => i);            // 연속 위치 (초기에는 정수)
+        const velocity = new Array(dim).fill(0).map(() =>
+            (Math.random() - 0.5) * 2 * this.vMax * 0.1  // 작은 초기 속도
+        );
+
+        return {
+            position,
+            velocity,
+            genes: [...indices],     // 이산화된 현재 위치 (= 종목 인덱스)
+            pBest: [...indices],      // 개인 최적 위치
+            pBestFit: -Infinity,
+            fitness: -Infinity,
+            stats: null
+        };
+    }
+
+    // ──────────────────────────────────────────────
+    // 적합도 평가 (캐싱된 정밀 데이터 기반)
+    // ──────────────────────────────────────────────
+    evaluate(particle) {
+        const genes = particle.genes;
+        if (genes.length === 0) return;
 
         const cashWeight = (this.config.cashWeight || 0) / 100;
-        const stockWeight = (1 - cashWeight) / stockCount;
+        const stockWeight = (1 - cashWeight) / genes.length;
 
-        const portReturns = new Float64Array(n);
+        // 포트폴리오 전체의 일별 수익률 합산 (정밀 리밸런싱 근사)
+        const n = this.dates.length;
+        let cumulative = 1 - ((this.config.feeRate || 0.0015) * (1 - cashWeight));
+        let peak = cumulative, mdd = 0;
+
+        const portReturns = new Float64Array(n); // Calculate daily returns for stdDev/downStdDev
         for (let i = 0; i < n; i++) {
             let dailyRet = 0;
-            individual.genes.forEach(gIdx => {
+            genes.forEach(gIdx => {
                 const code = this.pool[gIdx].code;
-                dailyRet += this.stockReturns[code][i] * stockWeight;
+                dailyRet += this.stockCache[code].dayReturns[i] * stockWeight;
             });
             portReturns[i] = dailyRet;
-        }
 
-        let cumulative = 1, peak = 1, mdd = 0, sumRet = 0;
-        for (let i = 0; i < n; i++) {
-            const r = portReturns[i];
-            cumulative *= (1 + r);
-            sumRet += r;
+            cumulative *= (1 + dailyRet);
             if (cumulative > peak) peak = cumulative;
             const dd = (cumulative / peak) - 1;
             if (dd < mdd) mdd = dd;
         }
 
+        const absReturn = cumulative - 1;
+
+        // ... (Sharpe, Sortino 등 계산 로직은 동일하게 유지)
+        const sumRet = portReturns.reduce((acc, r) => acc + r, 0);
         const avgRet = sumRet / n;
         let varSum = 0, downVarSum = 0;
         for (let i = 0; i < n; i++) {
@@ -120,97 +279,208 @@ class DiscoveryGASolver {
         const sharpe = annVol > 0 ? annRet / annVol : 0;
         const sortino = annDownVol > 0 ? annRet / annDownVol : 0;
         const romad = Math.abs(mdd) > 0 ? (cumulative - 1) / Math.abs(mdd) : (cumulative - 1);
-        const absReturn = cumulative - 1;
 
         let fitness = 0;
         switch (this.config.metric) {
-            case 'return': fitness = absReturn; break;
+            case 'return':
+                // [개선] 변동성 대비 수익 옵션이 켜져 있으면 수익률을 연환산 변동성으로 나누어 계산
+                fitness = (this.config.useRiskAdjusted && annVol > 0) ? absReturn / annVol : absReturn;
+                break;
             case 'romad': fitness = romad; break;
             case 'sortino': fitness = sortino; break;
             case 'sharpe':
             default: fitness = sharpe; break;
         }
 
-        individual.fitness = fitness;
-        individual.stats = { fitness, absReturn, mdd, sharpe, sortino, romad };
+        particle.fitness = fitness;
+        particle.stats = { fitness, absReturn, mdd, sharpe, sortino, romad };
     }
 
-    evolve() {
-        const newPop = [];
-        this.population.sort((a, b) => b.fitness - a.fitness);
-        newPop.push(this.population[0]);
-        newPop.push(this.population[1]);
-        while (newPop.length < this.popSize) {
-            const p1 = this.tournament();
-            const p2 = this.tournament();
-            const child = this.crossover(p1, p2);
-            this.mutate(child);
-            newPop.push(child);
-        }
-        this.population = newPop;
-    }
+    // ──────────────────────────────────────────────
+    // 속도 업데이트
+    // ──────────────────────────────────────────────
+    updateVelocity(particle, w) {
+        const dim = particle.position.length;
+        for (let d = 0; d < dim; d++) {
+            const r1 = Math.random();
+            const r2 = Math.random();
+            particle.velocity[d] =
+                w * particle.velocity[d]
+                + this.c1 * r1 * (particle.pBest[d] - particle.position[d])
+                + this.c2 * r2 * (this.gBest.genes[d] - particle.position[d]);
 
-    tournament() {
-        const i1 = this.population[Math.floor(Math.random() * this.popSize)];
-        const i2 = this.population[Math.floor(Math.random() * this.popSize)];
-        if (!i1 || !i2) return this.population[0];
-        return i1.fitness > i2.fitness ? i1 : i2;
-    }
-
-    crossover(p1, p2) {
-        const genes = [];
-        const set = new Set();
-        for (let i = 0; i < this.config.targetCount; i++) {
-            const g = Math.random() > 0.5 ? p1.genes[i] : p2.genes[i];
-            if (!set.has(g)) { genes.push(g); set.add(g); }
-        }
-        while (genes.length < this.config.targetCount) {
-            const rg = Math.floor(Math.random() * this.pool.length);
-            if (!set.has(rg)) { genes.push(rg); set.add(rg); }
-        }
-        return { genes, fitness: -Infinity };
-    }
-
-    mutate(ind) {
-        if (Math.random() < 0.1) {
-            const idx = Math.floor(Math.random() * ind.genes.length);
-            let rg;
-            const currentGenes = new Set(ind.genes);
-            do { rg = Math.floor(Math.random() * this.pool.length); } while (currentGenes.has(rg));
-            ind.genes[idx] = rg;
+            // 속도 클램핑
+            if (particle.velocity[d] > this.vMax) particle.velocity[d] = this.vMax;
+            if (particle.velocity[d] < -this.vMax) particle.velocity[d] = -this.vMax;
         }
     }
 
-    async solve(onProgress) {
-        this.initPopulation();
-        const hallOfFame = new Map();
+    // ──────────────────────────────────────────────
+    // 위치 업데이트 + 이산화
+    // ──────────────────────────────────────────────
+    updatePosition(particle) {
+        const poolSize = this.pool.length;
+        const dim = particle.position.length;
 
-        const recordHoF = (ind) => {
-            if (ind.fitness !== -Infinity && ind.stats) {
-                const key = [...ind.genes].sort((a, b) => a - b).join(',');
-                if (!hallOfFame.has(key) || ind.fitness > hallOfFame.get(key).fitness) {
-                    hallOfFame.set(key, { ...ind, genes: [...ind.genes], stats: { ...ind.stats } });
-                }
+        // 연속 위치 업데이트
+        for (let d = 0; d < dim; d++) {
+            particle.position[d] += particle.velocity[d];
+            // 경계 클램핑
+            if (particle.position[d] < 0) {
+                particle.position[d] = 0;
+                particle.velocity[d] *= -0.5; // 벽 반사
             }
-        };
-
-        for (let g = 0; g < this.generations; g++) {
-            this.population.forEach(ind => {
-                if (ind.fitness === -Infinity) this.evaluate(ind);
-                recordHoF(ind);
-            });
-            if (onProgress) onProgress(g + 1, this.generations);
-            this.evolve();
+            if (particle.position[d] > poolSize - 1) {
+                particle.position[d] = poolSize - 1;
+                particle.velocity[d] *= -0.5;
+            }
         }
 
-        this.population.forEach(ind => {
-            if (ind.fitness === -Infinity) this.evaluate(ind);
-            recordHoF(ind);
-        });
+        // 이산화: 반올림 후 중복 해소
+        const rounded = particle.position.map(x => Math.round(x));
+        particle.genes = this.resolveCollisions(rounded, poolSize);
+    }
 
-        const allUnique = Array.from(hallOfFame.values());
+    // ──────────────────────────────────────────────
+    // 중복 해소: 같은 종목이 선택되면 가장 가까운 미사용 인덱스로 교체
+    // ──────────────────────────────────────────────
+    resolveCollisions(indices, poolSize) {
+        const used = new Set();
+        const result = new Array(indices.length);
+
+        // 1차: 중복 없는 것 먼저 확정
+        for (let i = 0; i < indices.length; i++) {
+            let idx = Math.max(0, Math.min(poolSize - 1, indices[i]));
+            if (!used.has(idx)) {
+                result[i] = idx;
+                used.add(idx);
+            } else {
+                result[i] = -1; // 중복 → 나중에 해결
+            }
+        }
+
+        // 2차: 중복된 슬롯에 대해 가장 가까운 미사용 인덱스 할당
+        for (let i = 0; i < result.length; i++) {
+            if (result[i] !== -1) continue;
+            const target = Math.max(0, Math.min(poolSize - 1, indices[i]));
+            let offset = 0;
+            while (true) {
+                const up = target + offset;
+                const down = target - offset;
+                if (up < poolSize && !used.has(up)) {
+                    result[i] = up; used.add(up); break;
+                }
+                if (down >= 0 && !used.has(down)) {
+                    result[i] = down; used.add(down); break;
+                }
+                offset++;
+                if (offset > poolSize) break; // 안전장치
+            }
+        }
+        return result;
+    }
+
+    // ──────────────────────────────────────────────
+    // 돌연변이: 다양성 유지
+    // ──────────────────────────────────────────────
+    mutate(particle) {
+        if (Math.random() < this.mutProb) {
+            const poolSize = this.pool.length;
+            const dim = particle.genes.length;
+            const mutIdx = Math.floor(Math.random() * dim);
+            const currentGenes = new Set(particle.genes);
+
+            // 완전히 랜덤한 새 종목으로 교체
+            let newGene;
+            let attempts = 0;
+            do {
+                newGene = Math.floor(Math.random() * poolSize);
+                attempts++;
+            } while (currentGenes.has(newGene) && attempts < poolSize);
+
+            if (!currentGenes.has(newGene)) {
+                particle.genes[mutIdx] = newGene;
+                particle.position[mutIdx] = newGene; // 연속 위치도 동기화
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // 아카이브 기록
+    // ──────────────────────────────────────────────
+    recordArchive(particle, archive) {
+        if (particle.fitness === -Infinity || !particle.stats) return;
+        const key = [...particle.genes].sort((a, b) => a - b).join(',');
+        if (!archive.has(key) || particle.fitness > archive.get(key).fitness) {
+            archive.set(key, {
+                genes: [...particle.genes],
+                fitness: particle.fitness,
+                stats: { ...particle.stats }
+            });
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // 메인 PSO 루프
+    // ──────────────────────────────────────────────
+    async solve(onProgress) {
+        this.initSwarm();
+        const archive = new Map();
+
+        // 초기 평가
+        for (const p of this.swarm) {
+            this.evaluate(p);
+            // pBest 초기화
+            p.pBest = [...p.genes];
+            p.pBestFit = p.fitness;
+            // gBest 초기화
+            if (!this.gBest || p.fitness > this.gBest.fitness) {
+                this.gBest = { genes: [...p.genes], fitness: p.fitness, stats: { ...p.stats } };
+            }
+            this.recordArchive(p, archive);
+        }
+
+        for (let iter = 0; iter < this.maxIter; iter++) {
+            // 관성 가중치 선형 감소
+            const w = this.wMax - (this.wMax - this.wMin) * (iter / this.maxIter);
+
+            // 속도 + 위치 업데이트
+            for (const p of this.swarm) {
+                this.updateVelocity(p, w);
+                this.updatePosition(p);
+                this.mutate(p);
+            }
+
+            // 평가 + pBest/gBest 갱신
+            for (const p of this.swarm) {
+                this.evaluate(p);
+
+                // 개인 최적 갱신
+                if (p.fitness > p.pBestFit) {
+                    p.pBest = [...p.genes];
+                    p.pBestFit = p.fitness;
+                }
+
+                // 글로벌 최적 갱신
+                if (p.fitness > this.gBest.fitness) {
+                    this.gBest = { genes: [...p.genes], fitness: p.fitness, stats: { ...p.stats } };
+                }
+
+                // 아카이브 기록
+                this.recordArchive(p, archive);
+            }
+
+            if (onProgress) onProgress(iter + 1, this.maxIter);
+
+            // 비동기 양보 (UI 갱신 허용) — 10회마다
+            if (iter % 10 === 0) {
+                await new Promise(r => setTimeout(r, 0));
+            }
+        }
+
+        // 아카이브에서 TOP 50 추출
+        const allUnique = Array.from(archive.values());
         allUnique.sort((a, b) => b.fitness - a.fitness);
-
         return allUnique.slice(0, 50);
     }
 }
@@ -219,6 +489,8 @@ const DiscoveryUI = {
     selectedStocks: [{ code: 'CASH', name: '현금', ticker: 'CASH', weight: 20 }],
     scenarios: {},
     discoveredResults: [],
+    currentAnalysisTarget: '', // 분석 대상 타이틀 저장용
+    currentSort: { key: 'fitness', desc: true },
 
     init() {
         this.loadScenarios();
@@ -247,6 +519,40 @@ const DiscoveryUI = {
         this.renderScenarioSelect();
     },
 
+    bindEvents() {
+        document.getElementById('dsScenarioSelect')?.addEventListener('change', (e) => { if (e.target.value) this.loadScenarioByName(e.target.value); });
+        document.getElementById('btnDsSaveScenario')?.addEventListener('click', () => {
+            const name = prompt('저장할 시나리오 이름을 입력하세요:');
+            if (name) { this.scenarios[name] = this.getCurrentConfig(); this.saveScenarios(); showToast('저장되었습니다.', 'success'); }
+        });
+        document.getElementById('btnDsDeleteScenario')?.addEventListener('click', () => {
+            const name = document.getElementById('dsScenarioSelect').value;
+            if (name && confirm(`"${name}" 삭제하시겠습니까?`)) { delete this.scenarios[name]; this.saveScenarios(); showToast('삭제되었습니다.'); }
+        });
+        document.querySelectorAll('input[name="rebalanceType"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const type = e.target.value;
+                const pRow = document.getElementById('rebalancePeriodRow'), dRow = document.getElementById('rebalanceDeviationRow');
+                if (pRow) pRow.style.display = type === 'period' ? 'flex' : 'none';
+                if (dRow) dRow.style.display = type === 'deviation' ? 'flex' : 'none';
+            });
+        });
+
+        // Trigger initial state for rebalance rows
+        const checkedRebalance = document.querySelector('input[name="rebalanceType"]:checked');
+        if (checkedRebalance) checkedRebalance.dispatchEvent(new Event('change'));
+
+        document.getElementById('btnRunDiscovery')?.addEventListener('click', () => this.runDiscovery());
+
+        // 컬럼 헤더 클릭 정렬 이벤트
+        document.querySelectorAll('#dsLogHead th[data-sort]').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.getAttribute('data-sort');
+                this.toggleSort(key);
+            });
+        });
+    },
+
     saveScenarios() {
         localStorage.setItem('ds_scenarios', JSON.stringify(this.scenarios));
         this.renderScenarioSelect();
@@ -270,6 +576,12 @@ const DiscoveryUI = {
         if (!sel) return;
         sel.innerHTML = '<option value="">전체 종목 대상 발굴</option>';
         tabs.forEach(t => { const opt = document.createElement('option'); opt.value = t.uid; opt.textContent = t.name; sel.appendChild(opt); });
+
+        // 첫 번째 그룹이 존재하면 기본으로 선택
+        if (tabs.length > 0) {
+            sel.value = tabs[0].uid;
+        }
+
         this.renderStockPicker(sel.value);
         sel.addEventListener('change', (e) => this.renderStockPicker(e.target.value));
     },
@@ -292,27 +604,6 @@ const DiscoveryUI = {
         });
     },
 
-    bindEvents() {
-        document.getElementById('dsScenarioSelect')?.addEventListener('change', (e) => { if (e.target.value) this.loadScenarioByName(e.target.value); });
-        document.getElementById('btnDsSaveScenario')?.addEventListener('click', () => {
-            const name = prompt('저장할 시나리오 이름을 입력하세요:');
-            if (name) { this.scenarios[name] = this.getCurrentConfig(); this.saveScenarios(); showToast('저장되었습니다.', 'success'); }
-        });
-        document.getElementById('btnDsDeleteScenario')?.addEventListener('click', () => {
-            const name = document.getElementById('dsScenarioSelect').value;
-            if (name && confirm(`"${name}" 삭제하시겠습니까?`)) { delete this.scenarios[name]; this.saveScenarios(); showToast('삭제되었습니다.'); }
-        });
-        document.querySelectorAll('input[name="rebalanceType"]').forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                const type = e.target.value;
-                const pRow = document.getElementById('rebalancePeriodRow'), dRow = document.getElementById('rebalanceDeviationRow');
-                if (pRow) pRow.style.display = type === 'period' ? 'flex' : 'none';
-                if (dRow) dRow.style.display = type === 'deviation' ? 'flex' : 'none';
-            });
-        });
-        document.getElementById('btnRunDiscovery')?.addEventListener('click', () => this.runDiscovery());
-    },
-
     getCurrentConfig() {
         return {
             initialCapital: document.getElementById('dsInitialCapital').value,
@@ -324,6 +615,8 @@ const DiscoveryUI = {
             rebalanceThreshold: document.getElementById('dsRebalanceThreshold').value,
             metric: document.querySelector('input[name="dsMetric"]:checked').value,
             targetCount: document.getElementById('dsTargetStockCount').value,
+            useCorrelation: document.getElementById('dsUseCorrelation').checked,
+            useRiskAdjusted: document.getElementById('dsUseRiskAdjusted').checked,
         };
     },
 
@@ -339,7 +632,27 @@ const DiscoveryUI = {
         const mType = document.querySelector(`input[name="dsMetric"][value="${config.metric}"]`);
         if (mType) mType.checked = true;
         document.getElementById('dsTargetStockCount').value = config.targetCount;
+        if (document.getElementById('dsUseCorrelation')) {
+            document.getElementById('dsUseCorrelation').checked = !!config.useCorrelation;
+        }
+        if (document.getElementById('dsUseRiskAdjusted')) {
+            document.getElementById('dsUseRiskAdjusted').checked = !!config.useRiskAdjusted;
+        }
         this.updateWeightSum();
+    },
+
+    toggleSort(key) {
+        if (this.currentSort.key === key) {
+            this.currentSort.desc = !this.currentSort.desc;
+        } else {
+            this.currentSort.key = key;
+            this.currentSort.desc = true;
+        }
+
+
+        if (this.discoveredResults && this.discoveredResults.length > 0) {
+            this.displayDiscoveryList(this.discoveredResults, this.getCurrentConfig().metric, this.discoveredSolver.pool, this.discoveredSolver.config);
+        }
     },
 
     renderStockList() {
@@ -387,67 +700,217 @@ const DiscoveryUI = {
 
         if (pool.length < parseInt(config.targetCount)) { showToast(`대상 종목이 부족합니다.`, 'error'); return; }
 
-        document.getElementById('dsLoading').style.display = 'flex';
-        document.getElementById('dsLoadingProgress').textContent = '데이터 준비 중...';
-
         const btn = document.getElementById('btnRunDiscovery');
-        if (btn) btn.disabled = true;
+        const originalBtnText = btn.textContent;
+        if (btn) {
+            btn.disabled = true;
+            btn.classList.add('loading');
+            btn.textContent = '데이터 준비...';
+        }
 
         try {
-            const solver = new DiscoveryGASolver(pool, {
+            const solver = new DiscoveryPSOSolver(pool, {
                 targetCount: parseInt(config.targetCount),
                 metric: config.metric,
                 cashWeight: cashWeight,
-                generations: 50,
-                popSize: 100
+                swarmSize: 150,
+                maxIter: 100,
+                wMax: 1.1,
+                wMin: 0.5,
+                c1: 1.5,
+                c2: 1.5,
+                mutProb: 0.25,
+                useCorrelation: config.useCorrelation,
+                useRiskAdjusted: config.useRiskAdjusted,
+                feeRate: Number(config.feeRate) / 100
             });
+            this.discoveredSolver = solver;
             await solver.prepareData(periodMonths);
-            this.discoveredResults = await solver.solve((gen, total) => {
-                document.getElementById('dsLoadingProgress').textContent = `최적 포트폴리오 탐색 중... (${gen}/${total})`;
+
+            this.discoveredResults = await solver.solve((iter, total) => {
+                const pct = Math.floor((iter / total) * 100);
+                if (btn) btn.textContent = `발굴 중... ${pct}%`;
             });
+
+            // [핵심 개선] PSO 결과 TOP 50에 대해 '정밀 백테스트 엔진' 전수 조사 및 재정렬
+            const initialCapital = Number(document.getElementById('dsInitialCapital').value.replace(/,/g, ''));
+            const feeRate = Number(document.getElementById('dsFeeRate').value) / 100;
+            const taxRate = Number(document.getElementById('dsTaxRate').value) / 100;
+
+            let completedCount = 0;
+            const totalToVerify = this.discoveredResults.length;
+
+            const preciseJobs = this.discoveredResults.map(async (res) => {
+                try {
+                    const stockWeight = (100 - cashWeight) / res.genes.length;
+                    const stocks = res.genes.map(gIdx => {
+                        const s = solver.pool[gIdx];
+                        return { code: s.code, name: s.name, ticker: s.ticker, weight: stockWeight };
+                    });
+                    stocks.unshift({ code: 'CASH', name: '현금', ticker: 'CASH', weight: cashWeight });
+
+                    const historyMap = {};
+                    res.genes.forEach(gIdx => {
+                        const s = solver.pool[gIdx];
+                        const candleMap = solver.candleMaps[s.code];
+                        let lastValidPrice = 0;
+                        // 첫 번째 유효 가격 찾기
+                        for (const d of solver.dates) {
+                            const p = candleMap.get(d);
+                            if (p) { lastValidPrice = p; break; }
+                        }
+
+                        historyMap[s.ticker] = solver.dates.map(d => {
+                            const p = candleMap.get(d);
+                            if (p) lastValidPrice = p;
+                            return { date: d, close: lastValidPrice };
+                        });
+                    });
+                    historyMap['CASH'] = solver.dates.map(d => ({ date: d, close: 1 }));
+
+                    const engine = new DiscoveryEngine({
+                        initialCapital, feeRate, taxRate,
+                        strategy: { stocks, rebalanceType: config.rebalanceType, rebalancePeriod: config.rebalancePeriod, rebalanceThreshold: config.rebalanceThreshold },
+                        dates: solver.dates, historyMap, benchmarkHistory: [], sp500History: []
+                    });
+                    res.preciseStats = engine.run();
+                    // 정렬 기준(fitness)을 정밀 백테스트 결과로 갱신
+                    res.fitness = res.preciseStats.totalReturn;
+                    res.stats.absReturn = res.preciseStats.totalReturn;
+                    res.stats.mdd = res.preciseStats.mdd;
+                    res.stats.fitness = res.fitness;
+
+                    completedCount++;
+                    if (btn) btn.textContent = `정밀 검증... ${completedCount}/${totalToVerify}`;
+                } catch (e) {
+                    console.error("Precise validation error:", e);
+                    completedCount++;
+                }
+            });
+
+            await Promise.all(preciseJobs);
+
+            // 정밀 수익률 기준으로 최종 재정렬
+            this.discoveredResults.sort((a, b) => (b.preciseStats?.totalReturn || 0) - (a.preciseStats?.totalReturn || 0));
+
+            // 데이터 전처리: 정밀 정렬된 순서대로 순위 부여 및 상관관계 계산
+            this.discoveredResults.forEach((res, idx) => {
+                res.originalRank = idx + 1;
+                res.avgCorr = this._calculateAvgCorrelation(res.genes, solver.pool, solver.stockCache);
+            });
+
+            this.currentSort = { key: 'fitness', desc: true };
             this.displayDiscoveryList(this.discoveredResults, config.metric, solver.pool, solver.config);
             showToast('종목 발굴 완료', 'success');
-        } catch (err) { showToast(err.message, 'error'); }
-        finally {
-            document.getElementById('dsLoading').style.display = 'none';
-            if (btn) btn.disabled = false;
+        } catch (err) {
+            console.error(err);
+            showToast(err.message, 'error');
         }
+        finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.classList.remove('loading');
+                btn.textContent = originalBtnText;
+            }
+        }
+    },
+
+    _calculateAvgCorrelation(genes, solverPool, stockCache) {
+        if (!genes || genes.length < 2) return 0;
+        let sum = 0;
+        let count = 0;
+
+        const calcCorr = (x, y) => {
+            const n = Math.min(x.length, y.length);
+            if (n === 0) return 0;
+            let sx = 0, sy = 0, sxy = 0, sx2 = 0, sy2 = 0;
+            for (let i = 0; i < n; i++) {
+                sx += x[i]; sy += y[i];
+                sxy += x[i] * y[i];
+                sx2 += x[i] * x[i]; sy2 += y[i] * y[i];
+            }
+            const num = (n * sxy) - (sx * sy);
+            const den = Math.sqrt((n * sx2 - sx * sx) * (n * sy2 - sy * sy));
+            return den === 0 ? 0 : num / den;
+        };
+
+        for (let i = 0; i < genes.length; i++) {
+            for (let j = i + 1; j < genes.length; j++) {
+                const s1 = solverPool[genes[i]];
+                const s2 = solverPool[genes[j]];
+                const d1 = stockCache[s1.code]?.dayReturns;
+                const d2 = stockCache[s2.code]?.dayReturns;
+                if (d1 && d2) {
+                    sum += calcCorr(d1, d2);
+                    count++;
+                }
+            }
+        }
+        return count > 0 ? sum / count : 0;
     },
 
     displayDiscoveryList(results, metricKey, solverPool, solverConfig) {
         document.getElementById('dsEmptyState').style.display = 'none';
-        document.getElementById('dsResultState').style.display = 'block';
-        const metricNames = { return: '수익률', sharpe: '샤프지수', romad: 'RoMAD', sortino: '소르티노' };
+        document.getElementById('dsResultState').style.display = 'flex';
+        const metricNames = { return: '최대수익', sharpe: '샤프지수', romad: 'RoMAD', sortino: '소르티노' };
         document.getElementById('thMetricValue').textContent = metricNames[metricKey];
         const logBody = document.getElementById('dsLogBody');
         logBody.innerHTML = '';
+        const initialCapital = Number(document.getElementById('dsInitialCapital').value.replace(/,/g, ''));
+        const feeRate = Number(document.getElementById('dsFeeRate').value) / 100;
+        const taxRate = Number(document.getElementById('dsTaxRate').value) / 100;
+        const config = this.getCurrentConfig();
 
-        results.forEach((res, idx) => {
+        // 정렬 수행
+        const sorted = [...results].sort((a, b) => {
+            let valA, valB;
+            switch (this.currentSort.key) {
+                case 'rank': valA = a.originalRank; valB = b.originalRank; break;
+                case 'corr': valA = a.avgCorr; valB = b.avgCorr; break;
+                case 'fitness': valA = a.stats.fitness; valB = b.stats.fitness; break;
+                case 'return': valA = a.stats.absReturn; valB = b.stats.absReturn; break;
+                case 'mdd': valA = a.stats.mdd; valB = b.stats.mdd; break;
+                default: return 0;
+            }
+            if (valA < valB) return this.currentSort.desc ? 1 : -1;
+            if (valA > valB) return this.currentSort.desc ? -1 : 1;
+            return 0;
+        });
+
+        sorted.forEach((res, sIdx) => {
             const tr = document.createElement('tr');
             tr.style.cursor = 'pointer';
             tr.className = 'ds-res-row';
+            tr.id = `ds-row-${sIdx}`;
 
             const comboNamesHtml = res.genes.map(gIdx => {
                 const s = solverPool[gIdx];
-                return `<span class="ds-stock-ticker" data-gidx="${gIdx}" title="${s.name}">${s.ticker}</span>`;
+                return `<span class="ds-stock-ticker" data-gidx="${gIdx}" title="${s.ticker} 개별 분석">${s.name}</span>`;
             }).join('');
 
-            const retVal = res.stats.absReturn * 100;
+            // 이미 정밀검증이 완료된 데이터를 사용
+            const pRet = (res.preciseStats?.totalReturn ?? res.stats.absReturn) * 100;
+            const pMdd = (res.preciseStats?.mdd ?? res.stats.mdd) * 100;
+            const pFitness = res.preciseStats?.totalReturn ?? res.stats.fitness;
+            const fitnessDisplay = metricKey === 'return' ? fmtPct(pFitness * 100) : pFitness.toFixed(2);
+
             tr.innerHTML = `
-                <td>${idx + 1}</td>
+                <td>${res.originalRank}</td>
                 <td style="text-align:left;">${comboNamesHtml}</td>
-                <td style="color:var(--accent); font-weight:700;">${res.stats.fitness.toFixed(2)}</td>
-                <td class="${retVal >= 0 ? 'up' : 'down'}">${fmtPct(retVal)}</td>
-                <td class="down">${fmtPct(res.stats.mdd * 100)}</td>
-                <td><button class="ds-btn outline" style="height:22px; padding:0 8px; font-size:11px;">분석</button></td>
+                <td style="font-size:11px; font-weight:500;">${res.avgCorr.toFixed(2)}</td>
+                <td style="color:var(--accent); font-weight:700;">${fitnessDisplay}</td>
+                <td class="res-td-ret ${pRet >= 0 ? 'up' : 'down'}">${fmtPct(pRet)}</td>
+                <td class="res-td-mdd down">${fmtPct(pMdd)}</td>
             `;
 
-            tr.addEventListener('click', () => {
+            // 행 클릭: 포트폴리오 전체 상세 분석
+            tr.addEventListener('click', (e) => {
                 document.querySelectorAll('.ds-res-row').forEach(r => r.classList.remove('active'));
                 tr.classList.add('active');
-                this.runDetailedBacktest(res, solverPool, solverConfig);
+                this.runDetailedBacktest(res, solverPool, solverConfig, res.originalRank);
             });
 
+            // 개별 종목 티커 클릭: 해당 종목만 백테스트
             tr.querySelectorAll('.ds-stock-ticker').forEach(span => {
                 span.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -460,15 +923,38 @@ const DiscoveryUI = {
 
             logBody.appendChild(tr);
         });
-        if (results.length > 0) this.runDetailedBacktest(results[0], solverPool, solverConfig);
+        if (sorted.length > 0) {
+            // 정렬된 리스트의 첫 번째 항목을 기본 분석 대상으로 설정
+            const firstRes = sorted[0];
+            const firstRow = document.getElementById('ds-row-0');
+            if (firstRow) firstRow.classList.add('active');
+            this.runDetailedBacktest(firstRes, solverPool, solverConfig, firstRes.originalRank);
+        }
     },
 
-    async runDetailedBacktest(res, solverPool, solverConfig) {
+    async runDetailedBacktest(res, solverPool, solverConfig, rank) {
         const cashWeight = solverConfig.cashWeight;
         const stockWeight = (100 - cashWeight) / res.genes.length;
-        const stocks = res.genes.map(gIdx => { const s = solverPool[gIdx]; return { code: s.code, name: s.name, ticker: s.ticker, weight: stockWeight }; });
+        const stocks = res.genes.map(gIdx => {
+            const s = solverPool[gIdx];
+            return { code: s.code, name: s.name, ticker: s.ticker, weight: stockWeight };
+        });
         stocks.unshift({ code: 'CASH', name: '현금', ticker: 'CASH', weight: cashWeight });
         this.selectedStocks = stocks;
+
+        this.currentAnalysisTarget = `순위 ${rank} 포트폴리오 조합`;
+
+        // [일관성 보장] Solver가 이미 구성한 historyMap 재사용
+        const forceHistoryMap = {};
+        res.genes.forEach(gIdx => {
+            const s = solverPool[gIdx];
+            forceHistoryMap[s.ticker] = this.discoveredSolver.dates.map(d => ({
+                date: d,
+                close: this.discoveredSolver.candleMaps[s.code].get(d)
+            }));
+        });
+        forceHistoryMap['CASH'] = this.discoveredSolver.dates.map(d => ({ date: d, close: 1 }));
+
         const config = this.getCurrentConfig();
         await this.executeSimulationInternal(
             Number(config.initialCapital.replace(/,/g, '')),
@@ -476,7 +962,10 @@ const DiscoveryUI = {
             Number(config.taxRate) / 100,
             parseInt(config.periodMonths),
             stocks,
-            config
+            config,
+            false,
+            forceHistoryMap,
+            this.discoveredSolver.dates
         );
     },
 
@@ -489,6 +978,16 @@ const DiscoveryUI = {
             { code: s.code, name: s.name, ticker: s.ticker, weight: stockWeight }
         ];
         this.selectedStocks = stocks;
+
+        this.currentAnalysisTarget = `개별 종목 단독 분석: ${s.name} (${s.ticker})`;
+
+        const forceHistoryMap = {};
+        forceHistoryMap[s.ticker] = this.discoveredSolver.dates.map(d => ({
+            date: d,
+            close: this.discoveredSolver.candleMaps[s.code].get(d)
+        }));
+        forceHistoryMap['CASH'] = this.discoveredSolver.dates.map(d => ({ date: d, close: 1 }));
+
         const config = this.getCurrentConfig();
         await this.executeSimulationInternal(
             Number(config.initialCapital.replace(/,/g, '')),
@@ -496,42 +995,49 @@ const DiscoveryUI = {
             Number(config.taxRate) / 100,
             parseInt(config.periodMonths),
             stocks,
-            config
+            config,
+            false,
+            forceHistoryMap,
+            this.discoveredSolver.dates
         );
     },
 
-    async executeSimulationInternal(initialCapital, feeRate, taxRate, periodMonths, stocks, config) {
+    async executeSimulationInternal(initialCapital, feeRate, taxRate, periodMonths, stocks, config, showLoading = true, forceHistoryMap = null, forceDates = null) {
         const now = new Date();
         const start = new Date(now.getFullYear(), now.getMonth() - periodMonths, now.getDate());
         const startStr = start.toISOString().substring(0, 10);
-        document.getElementById('dsLoading').style.display = 'flex';
-        document.getElementById('dsLoadingProgress').textContent = '상세 데이터 로드...';
 
         try {
-            const stocksToFetch = stocks.filter(s => s.code !== 'CASH');
-            const candleCount = Math.ceil(periodMonths * 23) + 30;
-            const batchData = await API.fetchBatch(stocksToFetch.map(s => ({ code: s.code, ticker: s.ticker })), candleCount, '1d');
+            let historyMap = forceHistoryMap;
+            let commonDates = forceDates;
 
+            if (!historyMap || !commonDates) {
+                const stocksToFetch = stocks.filter(s => s.code !== 'CASH');
+                const candleCount = Math.ceil(periodMonths * 23) + 30;
+                const batchData = await API.fetchBatch(stocksToFetch.map(s => ({ code: s.code, ticker: s.ticker })), candleCount, '1d');
+
+                historyMap = {};
+                batchData.forEach((res, i) => { if (res?.allCandles?.length > 0) historyMap[stocksToFetch[i].ticker] = res.allCandles; });
+
+                const tickers = Object.keys(historyMap);
+                commonDates = [];
+                if (tickers.length > 0) {
+                    commonDates = historyMap[tickers[0]].map(h => h.date);
+                    tickers.forEach(t => {
+                        const dates = new Set(historyMap[t].map(h => h.date));
+                        commonDates = commonDates.filter(d => dates.has(d));
+                    });
+                    commonDates = commonDates.filter(d => d >= startStr).sort();
+                }
+                if (stocks.some(s => s.code === 'CASH')) historyMap['CASH'] = commonDates.map(d => ({ date: d, close: 1 }));
+            }
+
+            // 벤치마크는 캐싱 여부와 상관없이 필요하면 가져옴 (비동기)
             let bHistory = [], spHistory = [];
             try {
                 const bmk = await API.fetchStock('^KS200', 300, '1d', 'KS'); bHistory = bmk.allCandles || [];
                 const sp = await API.fetchStock('^GSPC', 300, '1d', 'US'); spHistory = sp.allCandles || [];
             } catch (e) { }
-
-            const historyMap = {};
-            batchData.forEach((res, i) => { if (res?.allCandles?.length > 0) historyMap[stocksToFetch[i].ticker] = res.allCandles; });
-
-            let commonDates = [];
-            const tickers = Object.keys(historyMap);
-            if (tickers.length > 0) {
-                commonDates = historyMap[tickers[0]].map(h => h.date);
-                tickers.forEach(t => {
-                    const dates = new Set(historyMap[t].map(h => h.date));
-                    commonDates = commonDates.filter(d => dates.has(d));
-                });
-                commonDates = commonDates.filter(d => d >= startStr).sort();
-            }
-            if (stocks.some(s => s.code === 'CASH')) historyMap['CASH'] = commonDates.map(d => ({ date: d, close: 1 }));
 
             const engine = new DiscoveryEngine({
                 initialCapital, feeRate, taxRate,
@@ -539,11 +1045,14 @@ const DiscoveryUI = {
                 dates: commonDates, historyMap, benchmarkHistory: bHistory, sp500History: spHistory
             });
             this.displayBacktestResults(engine.run());
-        } catch (err) { showToast(err.message, 'error'); }
-        finally { document.getElementById('dsLoading').style.display = 'none'; }
+        } catch (err) { console.error(err); showToast(err.message, 'error'); }
     },
 
     displayBacktestResults(result) {
+        // 분석 대상 타이틀 표시
+        const targetEl = document.getElementById('dsAnalysisTarget');
+        if (targetEl) targetEl.textContent = this.currentAnalysisTarget || '--';
+
         document.getElementById('resTotalReturn').textContent = fmtPct(result.totalReturn * 100);
         document.getElementById('resTotalReturn').className = 'value ' + (result.totalReturn >= 0 ? 'up' : 'down');
         document.getElementById('resTotalProfit').textContent = fmt(Math.round(result.totalProfit)) + ' 원';
@@ -632,10 +1141,25 @@ class DiscoveryEngine {
     }
 
     shouldRebalance(date) {
-        const d = new Date(date), pd = new Date(this.results.dates[this.results.dates.length - 2] || date);
+        if (!this.lastRebalanceDate) {
+            this.lastRebalanceDate = new Date(this.dates[0]);
+            return false;
+        }
+        const curr = new Date(date);
+        const last = this.lastRebalanceDate;
+        const diffDays = (curr - last) / (1000 * 60 * 60 * 24);
+
         switch (this.strategy.rebalancePeriod) {
-            case '1mo': return d.getMonth() !== pd.getMonth();
-            case '1yr': return d.getFullYear() !== pd.getFullYear();
+            case '1wk': return diffDays >= 7;
+            case '2wk': return diffDays >= 14;
+            case '1mo': return curr.getMonth() !== last.getMonth() || curr.getFullYear() !== last.getFullYear();
+            case '3mo':
+                const monthDiff = (curr.getFullYear() - last.getFullYear()) * 12 + (curr.getMonth() - last.getMonth());
+                return monthDiff >= 3;
+            case '6mo':
+                const monthDiff6 = (curr.getFullYear() - last.getFullYear()) * 12 + (curr.getMonth() - last.getMonth());
+                return monthDiff6 >= 6;
+            case '1yr': return curr.getFullYear() !== last.getFullYear();
             default: return false;
         }
     }
@@ -668,6 +1192,7 @@ class DiscoveryEngine {
             stockVal += h.qty * h.currentPrice;
         }
         this.currentCash = target - cost - stockVal;
+        this.lastRebalanceDate = new Date(date);
     }
 
     calculateFinalStats() {
@@ -687,7 +1212,24 @@ class DiscoveryEngine {
         const sharpe = std > 0 ? (avg / std) * Math.sqrt(252) : 0;
         const sortino = dstd > 0 ? (avg / dstd) * Math.sqrt(252) : 0;
         const calmar = Math.abs(mdd) > 0 ? cagr / Math.abs(mdd) : 0;
-        return { ...this.results, totalReturn, totalProfit: last - this.initialCapital, mdd, cagr, sharpe, sortino, calmar, infoRatio: 0 };
+
+        // Info Ratio 계산 (벤치마크 대비 초과 수익 / 추적 오차)
+        let infoRatio = 0;
+        const bmkRets = this.results.benchmarkReturns;
+        if (bmkRets && bmkRets.length === vals.length) {
+            const excessReturns = [];
+            for (let i = 0; i < returns.length; i++) {
+                const bDailyRet = ((1 + bmkRets[i + 1]) / (1 + bmkRets[i])) - 1;
+                excessReturns.push(returns[i] - bDailyRet);
+            }
+            if (excessReturns.length > 1) {
+                const avgExcess = excessReturns.reduce((a, b) => a + b, 0) / excessReturns.length;
+                const trackingError = Math.sqrt(excessReturns.reduce((a, b) => a + Math.pow(b - avgExcess, 2), 0) / (excessReturns.length - 1));
+                infoRatio = trackingError > 0 ? (avgExcess / trackingError) * Math.sqrt(252) : 0;
+            }
+        }
+
+        return { ...this.results, totalReturn, totalProfit: last - this.initialCapital, mdd, cagr, sharpe, sortino, calmar, infoRatio };
     }
 }
 
