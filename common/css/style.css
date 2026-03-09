@@ -2200,6 +2200,15 @@ input[type="checkbox"] {
   color: var(--alert2-color);
 }
 
+.toast i.toast-close {
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.toast i.toast-close:hover {
+  color: var(--alert2-color);
+}
+
 /* ══ 반응형 ══ */
 @media (max-width:1100px) {
   .panel-left {

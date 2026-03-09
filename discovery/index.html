@@ -212,10 +212,14 @@
             const c = document.getElementById('toastContainer');
             if (!c) return;
             const t = document.createElement('div');
-            t.className = 'toast ' + type;
-            t.textContent = msg;
+            t.className = 'toast toast-' + type;
+
+            let content = `<span>${msg}</span>`;
+            content += `<i class="fas fa-times toast-close" style="margin-left:auto; cursor:pointer;" onclick="this.parentElement.remove()"></i>`;
+
+            t.innerHTML = content;
             c.appendChild(t);
-            setTimeout(() => t.remove(), 3000);
+            requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('toast-show')));
         }
     </script>
     <script src="discovery.js"></script>

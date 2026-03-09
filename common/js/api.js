@@ -172,27 +172,26 @@ const API = (() => {
 
         const { results: batchResults } = await res.json();
 
-        // 20개의 결과를 각각 처리하여 화면 갱신 유발
-        batchResults.forEach((r, idx) => {
+        // 결과를 각각 처리하여 화면 갱신 유발
+        for (let idx = 0; idx < batchResults.length; idx++) {
+          const r = batchResults[idx];
           const s = chunk[idx];
           if (r && r.data) {
             const normalized = _normalize(r.data);
             onProgress?.(s.code, normalized, null);
             results.push(normalized);
           } else {
-            const err = new Error(r?.error || '데이터 없음');
+            const errMsg = r?.error || '데이터 없음';
+            const err = new Error(`[${s.code}] ${errMsg}`);
             onProgress?.(s.code, null, err);
-            results.push(null);
+            // 에러 시 즉시 중단
+            throw err;
           }
-        });
+        }
       } catch (e) {
-        console.warn(`[API] 배치 fetchRefresh 실패 (chunk ${i}):`, e.message);
-        chunk.forEach(s => {
-          onProgress?.(s.code, null, e);
-          results.push(null);
-        });
+        console.warn(`[API] fetchRefresh 중단:`, e.message);
+        throw e; // 예외를 던져서 상위 루프(CHUNK 루프)를 중단시킴
       }
-      /* Removed manual delay as requested */
     }
     return results;
   }

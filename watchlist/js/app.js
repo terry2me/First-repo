@@ -103,13 +103,13 @@ function showToast(msg, type = 'info') {
     info: 'fa-info-circle', warn: 'fa-exclamation-triangle',
     error: 'fa-times-circle', success: 'fa-check-circle'
   };
-  t.innerHTML = `<i class="fas ${icons[type] || icons.info}"></i><span>${msg}</span>`;
+
+  let content = `<i class="fas ${icons[type] || icons.info}"></i><span>${msg}</span>`;
+  content += `<i class="fas fa-times toast-close" style="margin-left:auto; cursor:pointer; opacity:0.6;" onclick="this.parentElement.remove()"></i>`;
+
+  t.innerHTML = content;
   c.appendChild(t);
   requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('toast-show')));
-  setTimeout(() => {
-    t.classList.remove('toast-show');
-    t.addEventListener('transitionend', () => t.remove(), { once: true });
-  }, 3200);
 }
 
 /* ══════════════════════════════════════════════
@@ -315,7 +315,8 @@ async function doSearch(input, dbOnly = false) {
     renderPreview(analyzed);
   } catch (err) {
     AppState.previewCode = null;
-    showSearchError(err.message || '데이터를 가져오는 데 실패했습니다.');
+    hideSearchLoading();
+    showToast(err.message || '데이터를 가져오는 데 실패했습니다.', 'error');
   }
 }
 
@@ -567,11 +568,14 @@ function hidePreview() {
   Charts.dispose('rsiStochChart');
 }
 function showSearchError(msg) {
-  document.getElementById('searchErrorMsg').textContent = msg;
-  document.getElementById('searchError').style.display = 'flex';
+  showToast(msg, 'error');
 }
-function hideSearchError() { document.getElementById('searchError').style.display = 'none'; }
+function hideSearchError() {
+  const el = document.getElementById('searchError');
+  if (el) el.style.display = 'none';
+}
 function showSearchLoading(v) { document.getElementById('searchLoading').style.display = v ? 'flex' : 'none'; }
+function hideSearchLoading() { document.getElementById('searchLoading').style.display = 'none'; }
 
 /* ══════════════════════════════════════════════
    일봉/주봉 전환 — API 1회 배치 조회
@@ -681,27 +685,35 @@ async function doRefreshAll(btn) {
 
   // 비동기 실행 (await를 걸지만 모달이 없으므로 다른 탭 구경 가능)
   // fetchRefresh 내부에서 20개씩 배치 처리됨 (api.js 참조)
-  await API.fetchRefresh(tabStocks, AppState.candleCount, AppState.listInterval,
-    (code, res, err) => {
-      done++;
-      if (res) {
-        const analyzed = Indicators.analyzeAll(res);
-        AppState.watchData[code] = analyzed;
-        _refreshListItem(code); // 1개 완료 시 화면(행) 즉각 렌더링
-        if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+  try {
+    await API.fetchRefresh(tabStocks, AppState.candleCount, AppState.listInterval,
+      (code, res, err) => {
+        done++;
+        if (res) {
+          const analyzed = Indicators.analyzeAll(res);
+          AppState.watchData[code] = analyzed;
+          _refreshListItem(code); // 1개 완료 시 화면(행) 즉각 렌더링
+          if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
 
-        // 미리보기 화면에 켜져 있는 종목이었다면 미리보기도 같이 갱신
-        if (AppState.previewCode === code && AppState.previewInterval === AppState.listInterval) {
-          AppState.previewData = analyzed;
-          renderPreview(analyzed);
+          // 미리보기 화면에 켜져 있는 종목이었다면 미리보기도 같이 갱신
+          if (AppState.previewCode === code && AppState.previewInterval === AppState.listInterval) {
+            AppState.previewData = analyzed;
+            renderPreview(analyzed);
+          }
+        } else {
+          console.warn(`[${code}] 조회 실패:`, err?.message);
         }
-      } else {
-        console.warn(`[${code}] 조회 실패:`, err?.message);
+        // 진행률 UI 업데이트
+        btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (${done}/${total})`;
       }
-      // 진행률 UI 업데이트
-      btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (${done}/${total})`;
-    }
-  );
+    );
+  } catch (e) {
+    console.error("새로고침 중 에러 발생:", e);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-sync-alt"></i> 새로고침';
+    showToast(`새로고침 중단: ${e.message}`, 'error');
+    return; // 즉시 중단
+  }
 
   btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 상관관계 분석 중...`;
   try {
@@ -709,7 +721,6 @@ async function doRefreshAll(btn) {
     const res = await fetch('/api/correlations/sync', { method: 'POST' });
     if (res.ok) {
       // 강제 리스트 리렌더 (상관관계 값이 반영됨)
-      // (API 엔드포인트는 아래서 구현해야함)
     }
   } catch (e) {
     console.warn("상관관계 자동분석 실패:", e);
@@ -720,13 +731,17 @@ async function doRefreshAll(btn) {
   setLastUpdated();
 
   // 변경된 DB 상관관계 데이터를 watchData에 다시 반영하기 위해 현재 탭 종목들의 메타를 다시 불러옴 (DB only)
-  await API.fetchBatch(tabStocks, AppState.candleCount, AppState.listInterval,
-    (code, res, err) => {
-      if (res && AppState.watchData[code]) {
-        AppState.watchData[code].correlations = res.correlations;
+  try {
+    await API.fetchBatch(tabStocks, AppState.candleCount, AppState.listInterval,
+      (code, res, err) => {
+        if (res && AppState.watchData[code]) {
+          AppState.watchData[code].correlations = res.correlations;
+        }
       }
-    }
-  );
+    );
+  } catch (e) {
+    console.warn("메타 갱신 실패:", e);
+  }
 
   renderList();
 

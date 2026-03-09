@@ -471,18 +471,24 @@ def _get_cache_cutoff(market: str, interval: str) -> str:
     interval별 캐시 유효 기준 날짜 반환.
 
     - 1d  : 마지막 거래일 날짜와 DB 날짜가 정확히 일치해야 HIT
-    - 1wk : 이번 주(월요일) 이후 데이터가 하나라도 있으면 HIT
-             (주봉 캔들 날짜는 항상 그 주 월요일 또는 금요일 기준이므로
-              당일 날짜와 일치하지 않아 일봉 로직으로는 항상 MISS)
+    - 1wk : 시장별 데이터 확정 시점 이전이면 지난주 월요일, 이후면 이번 주 월요일 기준 날짜 반환
     """
     if interval == "1wk":
+        now_kst = datetime.now(TZ_KST)
+        # 이번 주 월요일 (KST 기준)
+        this_monday_kst = now_kst - timedelta(days=now_kst.weekday())
+        this_monday_str = this_monday_kst.strftime("%Y-%m-%d")
+        last_monday_str = (this_monday_kst - timedelta(days=7)).strftime("%Y-%m-%d")
+
         if market == "US":
-            now = datetime.now(TZ_EST)
+            # 화요일 오전 10시(KST) 전에는 지난주 주봉 데이터를 기준으로 캐시 유지 (미국 월요일 장 마감 대기)
+            is_safe = (now_kst.weekday() > 1) or (now_kst.weekday() == 1 and now_kst.hour >= 10)
+            return this_monday_str if is_safe else last_monday_str
         else:
-            now = datetime.now(TZ_KST)
-        # 이번 주 월요일 (weekday 0 = 월)
-        monday = now - timedelta(days=now.weekday())
-        return monday.strftime("%Y-%m-%d")
+            # 한국 시장: 월요일 오후 4시(KST) 전에는 지난주 주봉 데이터를 기준으로 캐시 유지
+            is_safe = (now_kst.weekday() > 0) or (now_kst.weekday() == 0 and now_kst.hour >= 16)
+            return this_monday_str if is_safe else last_monday_str
+
     # 일봉(1d) 및 기타: 마지막 거래일 기준
     return get_last_trading_date(market)
 
@@ -646,6 +652,19 @@ def ensure_prices(ticker: str, market: str, interval: str, force: bool = False) 
     force=True(새로고침): 캐시 무시, DB 마지막 날짜부터 yfinance 재조회 → 덮어쓰기
     반환: 성공 여부
     """
+    # 주봉 예외 처리: 데이터 확정 전(미국 화요일 10시 KST, 한국 월요일 16시 KST)에는 
+    # 강제 새로고침(force=True)일지라도 기존 데이터가 있으면 무리하게 fetch하지 않음 (실패 방지)
+    if interval == "1wk" and force and db_has_today(ticker, interval, market):
+        now_kst = datetime.now(TZ_KST)
+        if market == "US":
+            is_safe = (now_kst.weekday() > 1) or (now_kst.weekday() == 1 and now_kst.hour >= 10)
+        else:
+            is_safe = (now_kst.weekday() > 0) or (now_kst.weekday() == 0 and now_kst.hour >= 16)
+        
+        if not is_safe:
+            print(f"[skip] {ticker} ({interval}) 아직 주봉 생성 전 → 기존 데이터 유지")
+            return True
+
     if not force and db_has_today(ticker, interval, market):
         print(f"[cache] {ticker} ({interval}) 오늘 데이터 있음 → DB 사용")
         return True
@@ -680,9 +699,22 @@ def ensure_prices_batch(stocks_info: list[dict], interval: str, force: bool = Fa
     to_fetch = []
     
     # 캐시 확인 및 대상 선정
+    now_kst = datetime.now(TZ_KST)
     for s in stocks_info:
         ticker = s['ticker']
         market = s['market']
+
+        # 주봉 예외 처리: 데이터 확정 전에는 강제 새로고침이라도 기존 데이터가 있으면 유지
+        if interval == "1wk" and force and db_has_today(ticker, interval, market):
+            if market == "US":
+                is_safe = (now_kst.weekday() > 1) or (now_kst.weekday() == 1 and now_kst.hour >= 10)
+            else:
+                is_safe = (now_kst.weekday() > 0) or (now_kst.weekday() == 0 and now_kst.hour >= 16)
+            
+            if not is_safe:
+                results[ticker] = True
+                continue
+
         if not force and db_has_today(ticker, interval, market):
             results[ticker] = True
         else:

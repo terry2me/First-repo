@@ -661,10 +661,12 @@ function anHidePreview() {
   Charts.dispose('an-rsiStochChart');
 }
 function anShowSearchError(msg) {
-  _anEl('searchErrorMsg').textContent = msg;
-  _anEl('searchError').style.display = 'flex';
+  showToast(msg, 'error');
 }
-function anHideSearchError() { _anEl('searchError').style.display = 'none'; }
+function anHideSearchError() {
+  const el = _anEl('searchError');
+  if (el) el.style.display = 'none';
+}
 function anShowSearchLoading(v) { _anEl('searchLoading').style.display = v ? 'flex' : 'none'; }
 
 /* ══════════════════════════════════════════════
