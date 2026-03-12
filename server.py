@@ -1285,7 +1285,9 @@ async def correlations_sync():
         import subprocess
         # 비동기 상황에서 스레딩/프로세스 블락이 생길 수 있으므로 스크립트 실행으로 위임
         try:
-            subprocess.run(["python", str(BASE_DIR / "zbackup" / "calculate_correlations.py")], check=True)
+            # 경로 교정: testcodes/calculate_correlations.py 사용
+            script_path = BASE_DIR / "testcodes" / "calculate_correlations.py"
+            subprocess.run(["python", str(script_path)], check=True)
             return True
         except subprocess.CalledProcessError:
             return False
@@ -1300,12 +1302,30 @@ async def correlations_sync():
 
 
 
+@app.get("/api/time")
+async def get_server_time():
+    """서버 기준 시장 마감 여부 및 마지막 거래일 정보 반환"""
+    us_last = get_last_trading_date("US")
+    ks_last = get_last_trading_date("KS")
+    us_closed = is_market_closed("US")
+    ks_closed = is_market_closed("KS")
+    
+    return {
+        "ok": True,
+        "now_kst": datetime.now(TZ_KST).isoformat(),
+        "markets": {
+            "US": {"last_trading_date": us_last, "is_closed": us_closed},
+            "KS": {"last_trading_date": ks_last, "is_closed": ks_closed}
+        }
+    }
+
 # ── 정적 파일 서빙 (HTML/CSS/JS) ───────────────────────────
 app.mount("/common", StaticFiles(directory=str(BASE_DIR / "common")), name="common")
 app.mount("/watchlist", StaticFiles(directory=str(BASE_DIR / "watchlist"), html=True), name="watchlist")
 app.mount("/backtest", StaticFiles(directory=str(BASE_DIR / "backtest"), html=True), name="backtest")
 app.mount("/discovery", StaticFiles(directory=str(BASE_DIR / "discovery"), html=True), name="discovery")
 app.mount("/filter", StaticFiles(directory=str(BASE_DIR / "filter"), html=True), name="filter")
+app.mount("/Indexsimulation", StaticFiles(directory=str(BASE_DIR / "Indexsimulation"), html=True), name="simulation")
 
 @app.get("/")
 async def root():

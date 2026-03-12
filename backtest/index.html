@@ -147,10 +147,6 @@
         </main>
     </div>
 
-    <div id="btLoading" class="bt-loading" style="display:none;">
-        <div class="spinner"></div>
-        <span id="btLoadingProgress">데이터를 수집 중입니다...</span>
-    </div>
 
     <!-- Toast -->
     <div id="toastContainer" class="toast-container"></div>
@@ -159,6 +155,7 @@
     <script src="../common/js/config.js"></script>
     <script src="../common/js/storage.js"></script>
     <script src="../common/js/api.js"></script>
+    <script src="../common/js/backtest_engine.js"></script>
     <script>
         // Utils needed by backtest.js
         function fmt(num) {
@@ -182,6 +179,16 @@
             t.innerHTML = content;
             c.appendChild(t);
             requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('toast-show')));
+
+            // 정상 종료(success, info)인 경우 3초 후 자동 닫기
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    if (t.parentElement) {
+                        t.classList.remove('toast-show');
+                        setTimeout(() => t.remove(), 300);
+                    }
+                }, 3000);
+            }
         }
     </script>
     <script src="backtest.js"></script>

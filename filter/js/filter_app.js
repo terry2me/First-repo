@@ -114,6 +114,16 @@ function showToast(msg, type = 'info') {
   t.innerHTML = content;
   c.appendChild(t);
   requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('toast-show')));
+
+  // 정상 종료(success, info)인 경우 3초 후 자동 닫기
+  if (type === 'success' || type === 'info') {
+    setTimeout(() => {
+      if (t.parentElement) {
+        t.classList.remove('toast-show');
+        setTimeout(() => t.remove(), 300);
+      }
+    }, 3000);
+  }
 }
 
 /* ══════════════════════════════════════════════
@@ -124,54 +134,9 @@ function showToast(msg, type = 'info') {
    일봉/주봉 토글 — 좌측/우측 분리
 ══════════════════════════════════════════════ */
 function initHeaderControls() {
-  AppState.previewInterval = Storage.getPreviewInterval();
-  AppState.listInterval = Storage.getListInterval();
-
-  // 좌측 미리보기 토글
-  document.querySelectorAll('.interval-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.interval === AppState.previewInterval);
-    btn.addEventListener('click', async () => {
-      if (AppState.previewInterval === btn.dataset.interval) return;
-      if (btn._switching) return;
-
-      const allBtns = document.querySelectorAll('.interval-btn');
-      allBtns.forEach(b => { b.disabled = true; b._switching = true; });
-
-      AppState.previewInterval = btn.dataset.interval;
-      await Storage.setPreviewInterval(AppState.previewInterval);
-      allBtns.forEach(b => b.classList.toggle('active', b === btn));
-
-      if (AppState.previewCode) {
-        doSearch(AppState.previewCode, true);
-      }
-
-      allBtns.forEach(b => { b.disabled = false; b._switching = false; });
-    });
-  });
-
-  // 우측 리스트 토글
-  const listContainer = document.getElementById('listIntervalToggle');
-  if (listContainer) {
-    listContainer.querySelectorAll('.list-interval-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.interval === AppState.listInterval);
-      btn.addEventListener('click', async () => {
-        if (AppState.listInterval === btn.dataset.interval) return;
-        if (btn._switching) return;
-
-        const allBtns = document.querySelectorAll('.list-interval-btn');
-        allBtns.forEach(b => { b.disabled = true; b._switching = true; });
-
-        AppState.listInterval = btn.dataset.interval;
-        await Storage.setListInterval(AppState.listInterval);
-        allBtns.forEach(b => b.classList.toggle('active', b === btn));
-
-        await _intervalSwitch(AppState.listInterval);
-
-        allBtns.forEach(b => { b.disabled = false; b._switching = false; });
-      });
-    });
-  }
-
+  // 종목필터 탭은 항상 일봉('1d')으로 고정 (미리보기 및 리스트 동일)
+  AppState.previewInterval = '1d';
+  AppState.listInterval = '1d';
   AppState.candleCount = 52;
 }
 
@@ -223,8 +188,9 @@ function initFilters() {
 function renderTabs() {
   const listEl = document.getElementById('tabList');
   if (!listEl) return;
+  // 하드코딩된 '필터' 탭만 표시
   listEl.innerHTML = `
-    <div class="tab-item active">
+    <div class="tab-item active" style="cursor: default;">
       <span class="tab-label">필터</span>
     </div>`;
 }
@@ -619,10 +585,18 @@ async function _intervalSwitch(interval) {
           }
         });
 
+        // 배치 처리 완료 후 화면 갱신 (프로그레시브 로딩)
+        if (AppState.bbFilterActive || AppState.eomFilterActive || AppState.rsiFilterActive) {
+          renderList();
+        }
+
         // 브라우저 렌더링을 위해 숨 고르기
         await new Promise(r => setTimeout(r, 50));
       }
       _syncFundamentalsFromWatchData();
+      if (AppState.bbFilterActive || AppState.eomFilterActive || AppState.rsiFilterActive) {
+        renderList();
+      }
       console.log(`[Interval] 모든 종목 전환 로드 완료`);
     })();
   }
@@ -764,24 +738,29 @@ function renderList() {
   syncColumnWidthsFromStorage();
 
   const anyFilter = AppState.bbFilterActive || AppState.eomFilterActive || AppState.rsiFilterActive;
-  let watchlist = anyFilter ? getAllStocksFromDB() : Storage.getWatchlist();
+
+  // '종목필터' 화면은 항상 전체 DB 종목을 대상으로 3가지 AND 조건을 체크함
+  // 어떠한 필터도 체크되지 않았거나, 데이터가 로드되지 않은 경우 빈 리스트가 나오는 것이 기본 사양
+  let sorted = anyFilter ? getAllStocksFromDB() : [];
 
   const listEl = document.getElementById('stockList');
   const emptyEl = document.getElementById('emptyState');
 
-  let sorted = [...watchlist];
-
-  // 1. 하단 근접 필터
+  // 1. BB 밴드 하단 근접 필터 (AND 1)
   if (AppState.bbFilterActive) {
     sorted = sorted.filter(stock => {
       const data = AppState.watchData[stock.code];
       if (!data || !data.bb || !data.currentPrice) return false;
+      // 하단 근접 % 계산: (현재가 - 하단) / 현재가 * 100
       const dropToLowerPct = ((data.currentPrice - data.bb.lower) / data.currentPrice) * 100;
       return dropToLowerPct <= AppState.bbFilterThreshold;
     });
+  } else {
+    // 필터가 꺼져 있으면 이 조건으로는 거르지 않음 (단, 기본적으로 아무 필터도 없으면 아무것도 안 나오게 하려면 아래 로직 필요)
+    // 여기서는 사용자의 "AND 조건 3개가 정상 동작" 요청에 따라, 체크된 것들끼리의 교집합을 구함.
   }
 
-  // 2. EOM 매수 타점 필터
+  // 2. EOM 매수 타점 필터 (AND 2)
   if (AppState.eomFilterActive) {
     sorted = sorted.filter(stock => {
       const data = AppState.watchData[stock.code];
@@ -790,7 +769,7 @@ function renderList() {
     });
   }
 
-  // 3. RSI+Stochastic 매수 타점 필터
+  // 3. RSI+Stochastic 매수 타점 필터 (AND 3)
   if (AppState.rsiFilterActive) {
     sorted = sorted.filter(stock => {
       const data = AppState.watchData[stock.code];
@@ -798,6 +777,8 @@ function renderList() {
       return latest?.rsiStSignal === 'BUY';
     });
   }
+
+  // AND 조건 필터링 수행
 
   // 정렬 로직 (필터 활성화 시 하단 근접도 순, 아닐 시 사용자 지정 컬럼 순)
   if (anyFilter) {
@@ -842,7 +823,6 @@ function renderList() {
     if (cb) cb.checked = true;
   });
   if (AppState.previewCode) highlightActiveRow(AppState.previewCode);
-  updateDeleteBtn();
 }
 
 /* ── 리스트 행 생성 ── */
@@ -979,7 +959,7 @@ function buildListItem(stock, data) {
   if (cbEl) cbEl.addEventListener('change', e => {
     if (e.target.checked) AppState.checkedCodes.add(stock.code);
     else AppState.checkedCodes.delete(stock.code);
-    syncCheckAll(); updateDeleteBtn();
+    syncCheckAll();
   });
   item.querySelector('.btn-detail').addEventListener('click', e => {
     e.stopPropagation();
@@ -1004,7 +984,7 @@ function highlightActiveRow(code) {
 }
 
 function updateStockCount(count) {
-  const finalCount = count !== undefined ? count : (AppState.bbFilterActive ? 0 : Storage.getWatchlist().length);
+  const finalCount = count !== undefined ? count : 0;
   document.getElementById('stockCount').textContent = finalCount;
 }
 
@@ -1104,7 +1084,7 @@ function _refreshListItem(code) {
       const valEl = item.querySelector('.bb-band-pct-val');
       if (valEl) {
         valEl.textContent = vals[i].str;
-        valEl.className = `bb - band - pct - val ${vals[i].cls} `;
+        valEl.className = `bb-band-pct-val ${vals[i].cls}`;
       }
     });
   }
@@ -1124,7 +1104,7 @@ function _refreshListItem(code) {
       if (!cEl || !item) return;
       cEl.textContent = (item.val >= 0 ? '+' : '') + item.val.toFixed(2);
       cEl.title = `[${item.code}] ${item.name || item.code} (${(item.val >= 0 ? '+' : '') + item.val.toFixed(4)})`;
-      cEl.className = `fund - val ${sel.replace('.', '')} ${item.val >= 0 ? 'fund-up' : 'fund-down'} `;
+      cEl.className = `fund-val ${sel.replace('.', '')} ${item.val >= 0 ? 'fund-up' : 'fund-down'}`;
     };
     _setCorr('.col-corr-pos', pos);
     _setCorr('.col-corr-neu', neu);
@@ -1298,12 +1278,11 @@ function syncColumnWidthsFromStorage() {
 function initCheckAll() {
   document.getElementById('checkAll').addEventListener('change', e => {
     Storage.getWatchlist().forEach(s => {
-      const cb = document.getElementById(`cb - ${s.code} `);
+      const cb = document.getElementById(`cb-${s.code}`);
       if (cb) cb.checked = e.target.checked;
       if (e.target.checked) AppState.checkedCodes.add(s.code);
       else AppState.checkedCodes.delete(s.code);
     });
-    updateDeleteBtn();
   });
 }
 function syncCheckAll() {
@@ -1313,35 +1292,8 @@ function syncCheckAll() {
   cb.checked = total > 0 && checked === total;
   cb.indeterminate = checked > 0 && checked < total;
 }
-function updateDeleteBtn() {
-  const n = AppState.checkedCodes.size;
-  const btn = document.getElementById('btnDeleteSelected');
-  if (btn) {
-    btn.disabled = n === 0;
-    btn.innerHTML = `< i class="fas fa-trash-alt" ></i > 선택 삭제${n > 0 ? ` (${n})` : ''} `;
-  }
-}
-function initDeleteBtn() {
-  document.getElementById('btnDeleteSelected').addEventListener('click', async () => {
-    if (!AppState.checkedCodes.size) return;
-    const names = [...AppState.checkedCodes].map(c => AppState.watchData[c]?.name || c).join(', ');
-    if (!confirm(`[${names}]을(를) 삭제하시겠습니까 ? `)) return;
-    AppState.checkedCodes.forEach(code => {
-      // delete AppState.watchData[code]; // 다른 탭에 동일 종목이 있을 수 있으므로 전역 캐시는 유지
-      Charts.dispose(`spark - ${code} `);
-      if (AppState.previewCode === code) {
-        hidePreview();
-        AppState.previewCode = null;
-        AppState.previewData = null;
-        document.getElementById('stockInput').value = '';
-      }
-    });
-    await Storage.removeStocks([...AppState.checkedCodes]);
-    AppState.checkedCodes.clear();
-    updateDeleteBtn(); renderList();
-    showToast('삭제 완료', 'info');
-  });
-}
+
+
 
 /* ══════════════════════════════════════════════
    모달
@@ -1411,7 +1363,7 @@ function _showCtxMenu(x, y, codes, label) {
 
   const menu = _getCtxMenu();
   menu.innerHTML = `
-    < div class="ctx-header" > ${label}</div >
+    <div class="ctx-header">${label}</div>
       <div class="ctx-section-title"><i class="fas fa-arrow-right"></i> 이동</div>
     ${othTabs.map(t => `
       <button class="ctx-item ctx-move" data-tab="${t.uid}">
@@ -1435,13 +1387,13 @@ function _showCtxMenu(x, y, codes, label) {
       const toTab = Storage.getTabs().find(t => t.uid === toTabUid);
       const n = await Storage.moveStocks(codes, toTabUid);
       // 이동된 종목은 현재 탭 캐시에서 제거
-      codes.forEach(c => { delete AppState.watchData[c]; Charts.dispose(`spark - ${c} `); });
+      codes.forEach(c => { delete AppState.watchData[c]; Charts.dispose(`spark-${c}`); });
       AppState.checkedCodes.clear();
       renderTabs(); renderList(); updateDeleteBtn();
       showToast(
         n > 0
           ? `✅ ${n}개 종목 → <b>${toTab?.name}</b> 이동 완료`
-          : `이미 < b > ${toTab?.name}</b > 에 존재하는 종목입니다.`,
+          : `이미 <b>${toTab?.name}</b> 에 존재하는 종목입니다.`,
         n > 0 ? 'success' : 'warn'
       );
     });
@@ -1457,7 +1409,7 @@ function _showCtxMenu(x, y, codes, label) {
       showToast(
         n > 0
           ? `✅ ${n}개 종목 → <b>${toTab?.name}</b> 복사 완료`
-          : `이미 < b > ${toTab?.name}</b > 에 존재하는 종목입니다.`,
+          : `이미 <b>${toTab?.name}</b> 에 존재하는 종목입니다.`,
         n > 0 ? 'success' : 'warn'
       );
     });
@@ -1488,9 +1440,9 @@ function _toggleBulkDropdown(type, anchorEl) {
   dd.id = 'bulkDropdown';
   dd.className = 'bulk-dropdown';
   dd.innerHTML = othTabs.map(t => `
-    < button class="bulk-dd-item" data - tab="${t.uid}" >
+    <button class="bulk-dd-item" data-tab="${t.uid}">
       <i class="fas fa-${type === 'move' ? 'sign-out-alt' : 'clone'}"></i> ${t.name}
-    </button > `).join('');
+    </button>`).join('');
 
   dd.querySelectorAll('.bulk-dd-item').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -1509,7 +1461,7 @@ function _toggleBulkDropdown(type, anchorEl) {
       showToast(
         n > 0
           ? `✅ ${n}개 종목 → <b>${toTab?.name}</b> ${type === 'move' ? '이동' : '복사'} 완료`
-          : `이미 < b > ${toTab?.name}</b > 에 존재하는 종목입니다.`,
+          : `이미 <b>${toTab?.name}</b> 에 존재하는 종목입니다.`,
         n > 0 ? 'success' : 'warn'
       );
     });
@@ -1567,8 +1519,8 @@ function initKeyboardNavigation() {
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
 
     // 2. 관심종목 탭이 활성 상태일 때만 작동 (다른 탭과의 간섭 방지)
-    const watchlistTab = document.getElementById('tab-watchlist');
-    if (!watchlistTab || watchlistTab.classList.contains('hidden') || watchlistTab.style.display === 'none') return;
+    const filterTab = document.getElementById('tab-filter');
+    if (!filterTab || filterTab.classList.contains('hidden') || filterTab.style.display === 'none') return;
 
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       const listEl = document.getElementById('stockList');
@@ -1590,8 +1542,8 @@ function initKeyboardNavigation() {
         if (currentIndex === -1) nextIndex = 0;
         else nextIndex = Math.min(items.length - 1, currentIndex + 1);
       } else { // ArrowUp
-        if (currentIndex === -1) return;
-        nextIndex = Math.max(0, currentIndex - 1);
+        if (currentIndex === -1) nextIndex = items.length - 1;
+        else nextIndex = Math.max(0, currentIndex - 1);
       }
 
       if (nextIndex !== undefined && nextIndex !== currentIndex) {
@@ -1624,7 +1576,6 @@ async function init() {
   initSortHeaders();
   initColResizers();
   initCheckAll();
-  initDeleteBtn();
   initModal();
   initKeyboardNavigation();
 
@@ -1683,16 +1634,20 @@ async function init() {
           (code, res, err) => {
             if (res) {
               AppState.watchData[code] = Indicators.analyzeAll(res);
-              // 필터링 모드일 경우 실시간으로 리스트 갱신
-              if (AppState.bbFilterActive) renderList();
             }
           }
         );
+        // 배치(50개) 처리 완료 후 1회만 화면 갱신 (성능 최적화 및 깜빡임 방지)
+        if (AppState.bbFilterActive || AppState.eomFilterActive || AppState.rsiFilterActive) {
+          renderList();
+        }
         // 브라우저가 숨을 쉴 틈을 줌
-        await new Promise(r => setTimeout(r, 100));
+        await new Promise(r => setTimeout(r, 50));
       }
       _syncFundamentalsFromWatchData();
-      if (AppState.bbFilterActive) renderList();
+      if (AppState.bbFilterActive || AppState.eomFilterActive || AppState.rsiFilterActive) {
+        renderList();
+      }
       console.log(`[Init] 모든 종목 로드 완료`);
     })();
   }

@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>📈 지표발굴</title>
+  <link rel="stylesheet" href="../common/css/style.css?v=20260228_10" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <style>
+    .main-layout {
+      height: 100% !important;
+      overflow: hidden !important;
+      padding: 14px !important;
+      margin: 0 !important;
+      box-sizing: border-box !important;
+      display: flex !important;
+      align-items: stretch !important;
+      gap: 14px !important;
+    }
+
+    .panel-left {
+      width: auto !important;
+      flex: 2 !important;
+      min-width: 0;
+      height: 100% !important;
+      overflow: hidden !important;
+      display: flex !important;
+      flex-direction: column !important;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+
+    .panel-right {
+      flex: 1 !important;
+      height: 100% !important;
+      min-width: 0;
+    }
+
+    /* 지표시뮬 전용: 헤더 파라미터 바 — 모든 항목 세로 2단 배치 */
+    .sim-header-bar {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      flex: 1;
+      /* flex-wrap: wrap; 제거 - 한 줄에 고정 */
+      min-width: 0;
+    }
+
+    .sim-header-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      font-size: 10px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .sim-header-item label {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .sim-header-item input[type="checkbox"] {
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .sim-header-input {
+      width: 48px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 4px;
+      text-align: center;
+      outline: none;
+    }
+
+    .sim-header-input:focus {
+      border-color: var(--accent);
+    }
+
+    select.sim-header-input {
+      width: 64px;
+      padding: 2px 2px;
+    }
+
+    .sim-header-sep {
+      width: 1px;
+      height: 28px;
+      background: var(--border);
+      margin: 0 2px;
+      align-self: center;
+    }
+
+    .btn-simulation {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 16px;
+      background: #0c2161;
+      border: none;
+      border-radius: 4px;
+      color: #cbd5e1;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      height: 28px;
+    }
+
+    .btn-simulation:hover {
+      background: #081640;
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.1);
+    }
+
+    .btn-simulation:active {
+      transform: translateY(0);
+    }
+
+    .btn-simulation:disabled {
+      background: var(--bg-card);
+      color: var(--text-muted);
+      cursor: not-allowed;
+      box-shadow: none;
+      filter: none;
+    }
+
+    /* 상세 로그 스타일 */
+    .sim-log-panel {
+      margin-top: 20px;
+      background: var(--bg-card);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 15px;
+    }
+
+    .sim-log-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sim-log-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    .sim-log-table th {
+      text-align: center;
+      padding: 8px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      font-weight: 500;
+    }
+
+    .sim-log-table td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .sim-log-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .log-pnl.up {
+      color: var(--up);
+    }
+
+    .log-pnl.down {
+      color: var(--down);
+    }
+
+    .log-date {
+      font-family: monospace;
+      color: var(--text-secondary);
+    }
+
+    /* 리스트 헤더 가운데 정렬 오버라이드 */
+    .col-header {
+      justify-content: center !important;
+      text-align: center;
+    }
+
+    .sort-col {
+      justify-content: center !important;
+      width: 100%;
+    }
+
+    /* 시뮬 결과 데이터 가운데 정렬 */
+    .col-sim-count,
+    .col-sim-pnl {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+
+    /* 시뮬레이션 이력 스타일 */
+    .sim-history-section {
+      margin-top: 16px;
+      background: rgba(15, 23, 42, 0.4);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 12px;
+    }
+
+    .sim-history-header {
+      font-size: 13px;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-bottom: 10px;
+    }
+
+    .sim-history-table-wrap {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 0;
+      padding-bottom: 24px; /* 마지막 행 가시성 확보 */
+    }
+
+    .sim-history-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .sim-history-table th {
+      position: sticky;
+      top: 0;
+      background: #0f172a;
+      text-align: left;
+      padding: 8px;
+      color: #64748b;
+      border-bottom: 2px solid rgba(255, 255, 255, 0.05);
+      font-weight: 500;
+    }
+
+    .sim-history-table td {
+      padding: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      color: #cbd5e1;
+    }
+
+    .sim-history-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .log-in {
+      color: #f87171;
+      font-weight: 600;
+    }
+
+    .log-out {
+      color: #60a5fa;
+      font-weight: 600;
+    }
+
+    .log-pnl.up {
+      color: #f87171;
+    }
+
+    .log-pnl.down {
+      color: #60a5fa;
+    }
+
+    /* 🚀 지표시뮬 전용: 화면 밀도 극대화 (차트 2/3 축소 및 상단 제거) */
+    .preview-top-row,
+    .corr-section,
+    .sim-history-header {
+      display: none !important;
+    }
+
+    .preview-card {
+      padding: 4px !important;
+      gap: 0 !important;
+      margin: 2px !important;
+    }
+
+    .mini-chart {
+      height: 356px !important;
+    }
+
+    .eom-chart {
+      height: 36px !important;
+    }
+
+    .rsi-stoch-chart {
+      height: 45px !important;
+    }
+
+    .sim-history-table td {
+      padding: 1px 8px !important;
+      /* 행 간격 5% 수준으로 축소 */
+      line-height: 1.2;
+    }
+
+    /* 다크 테마 스크롤바 커스텀 */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    
+    /* Firefox 용 */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: #334155 transparent;
+    }
+
+    /* 유연한 레이아웃 확장 */
+    #previewCard {
+      height: 100% !important;
+      display: flex !important;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden !important;
+      margin: 4px !important;
+    }
+
+    .chart-stack {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden !important;
+    }
+
+    #simHistorySection {
+      flex: 1 1 0%;
+      display: flex !important;
+      flex-direction: column;
+      min-height: 0;
+      margin-top: 6px !important;
+      padding: 0 4px !important;
+      overflow: hidden !important;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ===== 지표시뮬 (단일 화면) ===== -->
+  <div class="app-tab-content" id="tab-simulation">
+    <main class="main-layout">
+
+      <!-- ===== LEFT PANEL ===== -->
+      <section class="panel panel-left">
+
+        <!-- ── 미리보기 카드 ── -->
+        <div class="preview-card" id="previewCard" style="display:none;">
+
+          <!-- 상단 정보 행 (종목명/가격/등락 + BB바) 가로 배치 -->
+          <div class="preview-top-row">
+
+            <!-- 좌: 종목 정보 -->
+            <div class="preview-info-col">
+              <div class="preview-name-wrap">
+                <span class="preview-alert" id="previewAlert"></span>
+                <span class="preview-name" id="previewName">--</span>
+                <span class="preview-code" id="previewCode">--</span>
+                <span class="preview-interval-badge" id="previewIntervalBadge">일봉</span>
+                <span class="preview-sector-badge" id="previewSectorBadge" style="display:none;"></span>
+              </div>
+              <div class="preview-price-line">
+                <span class="preview-price" id="previewPrice">--</span>
+                <span class="preview-chg-group">
+                  <span class="preview-chg-label">금일</span>
+                  <span class="preview-today-chg" id="previewTodayChange">--</span>
+                  <span class="preview-chg-sep">|</span>
+                  <span class="preview-chg-label" id="previewPeriodLabel">기간</span>
+                  <span class="preview-change" id="previewChange">--</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- 우: BB 위치 바 + % 거리 -->
+            <div class="preview-bb-col">
+              <div class="bb-bar-wrap">
+                <div class="bb-bar-track">
+                  <div class="bb-bar-fill" id="previewBBFill"></div>
+                  <div class="bb-bar-marker" id="previewBBMarker"></div>
+                  <div class="bb-middle-line"></div>
+                </div>
+                <div class="bb-pct-row">
+                  <span class="bb-pct-item bb-pct-lower">
+                    <span class="bb-pct-label">하단</span>
+                    <span class="bb-pct-price" id="previewBBLowerPrice">--</span>
+                    <span class="bb-pct-val" id="previewBBLowerPct">--</span>
+                  </span>
+                  <span class="bb-pct-item bb-pct-middle">
+                    <span class="bb-pct-label">중단</span>
+                    <span class="bb-pct-price" id="previewBBMiddlePrice">--</span>
+                    <span class="bb-pct-val" id="previewBBMiddlePct">--</span>
+                  </span>
+                  <span class="bb-pct-item bb-pct-upper">
+                    <span class="bb-pct-label">상단</span>
+                    <span class="bb-pct-price" id="previewBBUpperPrice">--</span>
+                    <span class="bb-pct-val" id="previewBBUpperPct">--</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div><!-- /.preview-top-row -->
+
+          <!-- 상관관계 섹션: 현재가↔차트 사이 -->
+          <div class="corr-section" id="corrSection" style="display:none;"></div>
+
+          <!-- 차트 묶음: 캔들 + EOM + RSI (바짝 붙임) -->
+          <div class="chart-stack">
+            <div class="mini-chart-wrap">
+              <div id="previewChart" class="mini-chart"></div>
+            </div>
+            <div id="eomSection" style="display:none;">
+              <div id="eomChart" class="eom-chart"></div>
+            </div>
+            <div id="rsiStochSection" style="display:none;">
+              <div id="rsiStochChart" class="rsi-stoch-chart"></div>
+            </div>
+            <!-- 시뮬레이션 이력 리스트 (추가) -->
+            <div id="simHistorySection" class="sim-history-section" style="display:none;">
+              <div class="sim-history-header">시뮬레이션 이력 (In/Out)</div>
+              <div class="sim-history-table-wrap">
+                <table class="sim-history-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 110px;">날짜</th>
+                      <th style="width: 80px;">In</th>
+                      <th>Out</th>
+                      <th style="width: 70px; text-align: right;">수익</th>
+                      <th style="width: 70px; text-align: right;">누적</th>
+                      <th style="width: 70px; text-align: right;">보유</th>
+                    </tr>
+                  </thead>
+                  <tbody id="simHistoryBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- 에러 -->
+        <div class="search-error" id="searchError" style="display:none;">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span id="searchErrorMsg">종목을 찾을 수 없습니다.</span>
+        </div>
+
+        <!-- 로딩 -->
+        <div class="loading-wrap" id="searchLoading" style="display:none;">
+          <div class="spinner"></div>
+          <span>데이터 조회 중...</span>
+        </div>
+      </section>
+
+      <!-- ===== RIGHT PANEL ===== -->
+      <section class="panel panel-right">
+
+
+
+        <div class="panel-header">
+          <div class="sim-header-bar">
+            <!-- BB 필터 -->
+            <div class="sim-header-item">
+              <span>BB하단(%)</span>
+              <label>
+                <input type="checkbox" id="checkBBFilter" checked>
+                <input type="number" id="inputBBThreshold" value="0" min="-50" max="50" step="0.5"
+                  class="sim-header-input">
+              </label>
+            </div>
+
+            <div class="sim-header-sep"></div>
+
+            <!-- EOM 필터 -->
+            <div class="sim-header-item">
+              <span>EOM</span>
+              <label>
+                <input type="checkbox" id="checkEomFilter">
+              </label>
+            </div>
+
+            <div class="sim-header-sep"></div>
+
+            <!-- RSI 필터 -->
+            <div class="sim-header-item">
+              <span>RSI+St</span>
+              <label>
+                <input type="checkbox" id="checkRsiFilter">
+              </label>
+            </div>
+
+            <div class="sim-header-sep"></div>
+
+            <!-- 분석 파라미터 -->
+            <div class="sim-header-item">
+              <span>분석기간</span>
+              <select id="simPeriodMonths" class="sim-header-input" style="width: 68px;">
+                <option value="1">1개월</option>
+                <option value="3">3개월</option>
+                <option value="6" selected>6개월</option>
+                <option value="12">12개월</option>
+              </select>
+            </div>
+
+            <div class="sim-header-item">
+              <span>보유일</span>
+              <input type="number" id="simHoldingDays" value="5" min="1" max="60" class="sim-header-input">
+            </div>
+
+            <div class="sim-header-item">
+              <span>목표수익</span>
+              <input type="number" id="simTargetProfit" value="5.0" min="0.1" max="100" step="0.1"
+                class="sim-header-input">
+            </div>
+
+            <div class="sim-header-item">
+              <span>신호유효</span>
+              <input type="number" id="simSignalWindow" value="1" min="1" max="10" class="sim-header-input">
+            </div>
+
+            <div class="sim-header-item">
+              <span>관심그룹</span>
+              <select id="simGroupSelect" class="sim-header-input" style="width: 80px;">
+                <option value="all">전체</option>
+              </select>
+            </div>
+
+            <button id="btnTodayScan" class="btn-simulation" style="margin-left: auto; background: #1e3a8a;">
+              오늘
+            </button>
+            <button id="btnRunSim" class="btn-simulation" style="margin-left: 8px;">
+              시작
+            </button>
+
+            <!-- 기존 stockCount 유지 (display:none으로 숨김 처리하여 JS 오류 방지) -->
+            <span id="stockCount" style="display:none;">0</span>
+          </div>
+        </div>
+
+        <!-- 헤더+리스트 공통 가로스크롤 래퍼 -->
+        <div class="list-scroll-wrap">
+
+          <!-- 컬럼 헤더 -->
+          <div class="list-header" id="listHeader">
+            <div class="col-header col-name" data-col-id="name" style="flex: 1;">
+              <span class="sort-col" data-col="name">종목명<span class="sort-icon" id="sort-name"><i
+                    class="fas fa-sort"></i></span></span>
+            </div>
+            <div class="col-header col-sim-count" data-col-id="simCount" style="min-width: 90px;">
+              <span class="sort-col" data-col="simCount">성공/총횟수<span class="sort-icon" id="sort-simCount"><i
+                    class="fas fa-sort"></i></span></span>
+            </div>
+            <div class="col-header col-sim-pnl" data-col-id="simPnl" style="min-width: 90px;">
+              <span class="sort-col" data-col="simPnl">누적수익률<span class="sort-icon" id="sort-simPnl"><i
+                    class="fas fa-sort"></i></span></span>
+            </div>
+          </div>
+
+          <!-- 종목 리스트 -->
+          <div class="stock-list" id="stockList"></div>
+
+          <!-- 빈 상태 메시지 (stockList 형제 — DOM 오염 방지) -->
+          <div class="empty-state" id="emptyState" style="display:none;">
+            <i class="fas fa-chart-line"></i>
+            <p>시뮬레이션할 종목이 없습니다.</p>
+            <p class="empty-hint">종목을 선택하거나 검색하여 시뮬레이션 리스트를 구성하세요.</p>
+          </div>
+
+        </div><!-- /.list-scroll-wrap -->
+
+        <!-- 로딩 오버레이 -->
+        <div class="list-loading" id="listLoading" style="display:none;">
+          <div class="spinner"></div>
+          <span>새로고침 중...</span>
+        </div>
+      </section>
+
+    </main>
+  </div><!-- /#tab-simulation -->
+
+
+  <!-- 전역 로딩 -->
+  <div id="globalLoading" class="global-loading" style="display:none;">
+    <div class="global-loading-box">
+      <div class="spinner"></div>
+      <span>데이터 불러오는 중...</span>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- 탭 이름 편집 인라인 인풋 (숨김) -->
+  <input type="text" id="tabRenameInput" class="tab-rename-input" style="display:none;" maxlength="12" />
+
+  <!-- 차트 모달 -->
+  <div class="modal-overlay" id="chartModal" style="display:none;">
+    <div class="modal-content" style="max-height: 90vh; overflow-y: auto;">
+      <div class="modal-header">
+        <h3 id="modalTitle">종목 상세 차트</h3>
+        <button class="modal-close" id="modalClose"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="modalChart" style="width:100%; height:480px;"></div>
+
+      <!-- 시뮬레이션 상세 기록 (모달 내부 이동) -->
+      <div id="simLogPanel" class="sim-log-panel" style="margin-top: 20px; border-top: 1px solid var(--border);">
+        <div class="sim-log-title">
+          <i class="fas fa-history"></i> 시뮬레이션 거래 기록
+        </div>
+        <div id="simLogContent">
+          <!-- 테이블 동적 생성 -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../common/js/config.js?v=20260305_19"></script>
+  <script src="../common/js/storage.js?v=20260305_19"></script>
+  <script src="../common/js/api.js?v=20260305_19"></script>
+
+  <script src="js/sim_indicators.js?v=20260305_19"></script>
+  <script src="js/sim_charts.js?v=20260305_19"></script>
+  <script src="js/sim_app.js?v=20260305_19"></script>
+
+</body>
+
+</html>

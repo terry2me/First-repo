@@ -110,6 +110,16 @@ function showToast(msg, type = 'info') {
   t.innerHTML = content;
   c.appendChild(t);
   requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('toast-show')));
+
+  // 정상 종료(success, info)인 경우 3초 후 자동 닫기
+  if (type === 'success' || type === 'info') {
+    setTimeout(() => {
+      if (t.parentElement) {
+        t.classList.remove('toast-show');
+        setTimeout(() => t.remove(), 300);
+      }
+    }, 3000);
+  }
 }
 
 /* ══════════════════════════════════════════════
@@ -673,29 +683,26 @@ async function doRefreshAll(btn) {
   const total = tabStocks.length;
   let done = 0;
 
-  // 모달 없음 (listLoading 제거) — 버튼 텍스트만 업데이트
   btn.disabled = true;
-  btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 갱신 중... (0/${total})`;
+  btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 서버 시간 확인 중...`;
 
-  tabStocks.forEach(s => {
-    if (!Object.prototype.hasOwnProperty.call(AppState.watchData, s.code)) {
-      AppState.watchData[s.code] = null;
-    }
-  });
-
-  // 비동기 실행 (await를 걸지만 모달이 없으므로 다른 탭 구경 가능)
-  // fetchRefresh 내부에서 20개씩 배치 처리됨 (api.js 참조)
   try {
+    // 1. 서버 시간 정보 가져오기 (캐시 일관성 보장 위함)
+    const timeInfo = await API.fetchTime();
+    console.log("[Refresh] Server time cached:", timeInfo);
+
+    btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (0/${total})`;
+
+    // 2. 주가 갱신 (배치 처리)
     await API.fetchRefresh(tabStocks, AppState.candleCount, AppState.listInterval,
       (code, res, err) => {
         done++;
         if (res) {
           const analyzed = Indicators.analyzeAll(res);
           AppState.watchData[code] = analyzed;
-          _refreshListItem(code); // 1개 완료 시 화면(행) 즉각 렌더링
+          _refreshListItem(code);
           if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
 
-          // 미리보기 화면에 켜져 있는 종목이었다면 미리보기도 같이 갱신
           if (AppState.previewCode === code && AppState.previewInterval === AppState.listInterval) {
             AppState.previewData = analyzed;
             renderPreview(analyzed);
@@ -703,35 +710,16 @@ async function doRefreshAll(btn) {
         } else {
           console.warn(`[${code}] 조회 실패:`, err?.message);
         }
-        // 진행률 UI 업데이트
         btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (${done}/${total})`;
       }
     );
-  } catch (e) {
-    console.error("새로고침 중 에러 발생:", e);
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-sync-alt"></i> 새로고침';
-    showToast(`새로고침 중단: ${e.message}`, 'error');
-    return; // 즉시 중단
-  }
 
-  btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 상관관계 분석 중...`;
-  try {
-    // 백그라운드 스크립트로 파이썬 상관관계 돌리기 (api 엔드포인트 호출)
-    const res = await fetch('/api/correlations/sync', { method: 'POST' });
-    if (res.ok) {
-      // 강제 리스트 리렌더 (상관관계 값이 반영됨)
-    }
-  } catch (e) {
-    console.warn("상관관계 자동분석 실패:", e);
-  }
+    // 3. 상관관계 분석 요청 및 대기 (await)
+    btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 상관관계 분석 중...`;
+    await API.syncCorrelations();
 
-  // 최종 완료 후 정리 (와치데이터 리렌더링)
-  _syncFundamentalsFromWatchData();
-  setLastUpdated();
-
-  // 변경된 DB 상관관계 데이터를 watchData에 다시 반영하기 위해 현재 탭 종목들의 메타를 다시 불러옴 (DB only)
-  try {
+    // 4. 분석된 상관관계 메타 데이터 재로드 (DB Only 호출)
+    btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 데이터 동기화 중...`;
     await API.fetchBatch(tabStocks, AppState.candleCount, AppState.listInterval,
       (code, res, err) => {
         if (res && AppState.watchData[code]) {
@@ -739,10 +727,17 @@ async function doRefreshAll(btn) {
         }
       }
     );
+
   } catch (e) {
-    console.warn("메타 갱신 실패:", e);
+    console.error("새로고침 중 에러 발생:", e);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-sync-alt"></i> 새로고침';
+    showToast(`새로고침 중단: ${e.message}`, 'error');
+    return;
   }
 
+  _syncFundamentalsFromWatchData();
+  setLastUpdated();
   renderList();
 
   btn.disabled = false;

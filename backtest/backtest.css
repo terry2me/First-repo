@@ -285,6 +285,37 @@ input[type=number] {
     cursor: not-allowed;
 }
 
+.bt-run-btn.loading {
+    background: #081640;
+    color: var(--text-secondary);
+    cursor: wait;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+    opacity: 1;
+}
+
+.bt-run-btn.loading::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 2px;
+    width: 100%;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: bt-btn-loading 1.5s infinite;
+}
+
+@keyframes bt-btn-loading {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
+}
+
 /* Stock list */
 .bt-stock-pick-area {
     flex: 3;
@@ -545,11 +576,11 @@ input[type=number] {
 }
 
 .bt-card .value.up {
-    color: var(--success);
+    color: var(--up);
 }
 
 .bt-card .value.down {
-    color: var(--up);
+    color: var(--down);
 }
 
 .bt-card.sm {
@@ -654,11 +685,11 @@ input[type=number] {
 }
 
 .bt-log-table .up {
-    color: var(--success);
+    color: var(--up);
 }
 
 .bt-log-table .down {
-    color: var(--up);
+    color: var(--down);
 }
 
 .eval-item {

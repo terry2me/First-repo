@@ -117,6 +117,12 @@ const API = (() => {
         tabs: 전체 배열 교체 (null이면 변경 안 함)
         settings: 키별 upsert (null이면 변경 안 함)
   ══════════════════════════════════════════════ */
+  async function fetchTime() {
+    const res = await fetch(`${BASE}/api/time`);
+    if (!res.ok) throw new Error(`/api/time 실패`);
+    return res.json();
+  }
+
   async function saveConfig(tabs, settings) {
     const body = {};
     if (tabs !== undefined) body.tabs = tabs;
@@ -134,6 +140,12 @@ const API = (() => {
   /* ══════════════════════════════════════════════
      하위 호환 — app.js 에서 아직 사용 중인 함수들
   ══════════════════════════════════════════════ */
+
+  async function syncCorrelations() {
+    const res = await fetch(`${BASE}/api/correlations/sync`, { method: 'POST' });
+    if (!res.ok) throw new Error("상관관계 분석 실패");
+    return res.json();
+  }
 
   /**
    * fetchMultipleFast — fetchBatch 래퍼 (하위 호환)
@@ -264,11 +276,31 @@ const API = (() => {
     fetchRefresh,
     fetchConfig,
     saveConfig,
+    fetchTime,
+    fetchBenchmark: async (count, interval) => {
+      try {
+        const res = await fetchStock('^KS200', count, interval, 'KS');
+        return res.allCandles || [];
+      } catch (e) {
+        console.warn('Benchmark fetch failed:', e);
+        return [];
+      }
+    },
+    fetchSP500: async (count, interval) => {
+      try {
+        const res = await fetchStock('^GSPC', count, interval, 'US');
+        return res.allCandles || [];
+      } catch (e) {
+        console.warn('SP500 fetch failed:', e);
+        return [];
+      }
+    },
     // 하위 호환
     fetchMultiple,
     fetchMultipleFast,
     resolveMarkets,
     fetchFundamentals,
     fetchFundamentalsBatch,
+    syncCorrelations,
   };
 })();

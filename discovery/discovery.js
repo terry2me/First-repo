@@ -241,10 +241,15 @@ class DiscoveryPSOSolver {
 
         // 포트폴리오 전체의 일별 수익률 합산 (정밀 리밸런싱 근사)
         const n = this.dates.length;
-        let cumulative = 1 - ((this.config.feeRate || 0.0015) * (1 - cashWeight));
+        const feeRate = this.config.feeRate || 0.0015;
+        const taxRate = 0.0020; // 표준 매도세율 적용
+
+        // [로직 개선] 추정 일회성 거래 비용(진입 시) 패널티 적용
+        let cumulative = 1 - (feeRate * (1 - cashWeight));
+
         let peak = cumulative, mdd = 0;
 
-        const portReturns = new Float64Array(n); // Calculate daily returns for stdDev/downStdDev
+        const portReturns = new Float64Array(n);
         for (let i = 0; i < n; i++) {
             let dailyRet = 0;
             genes.forEach(gIdx => {
@@ -261,7 +266,10 @@ class DiscoveryPSOSolver {
 
         const absReturn = cumulative - 1;
 
-        // ... (Sharpe, Sortino 등 계산 로직은 동일하게 유지)
+        // [로직 개선] 정기 리밸런싱 발생 시 누적될 추정 비용 패널티 반영 (월 1회 리밸런싱 가정)
+        const estRebalanceCost = (this.dates.length / 21) * (feeRate + taxRate) * (1 - cashWeight) * 0.5; // 보수적 추정치
+        const adjustedReturn = absReturn - estRebalanceCost;
+
         const sumRet = portReturns.reduce((acc, r) => acc + r, 0);
         const avgRet = sumRet / n;
         let varSum = 0, downVarSum = 0;
@@ -272,13 +280,13 @@ class DiscoveryPSOSolver {
         }
         const stdDev = Math.sqrt(varSum / n);
         const downStdDev = Math.sqrt(downVarSum / n);
-        const annRet = avgRet * 252;
+        const annRet = (adjustedReturn / n) * 252; // 보정된 수익률 기반 연환산
         const annVol = stdDev * Math.sqrt(252);
         const annDownVol = downStdDev * Math.sqrt(252);
 
         const sharpe = annVol > 0 ? annRet / annVol : 0;
         const sortino = annDownVol > 0 ? annRet / annDownVol : 0;
-        const romad = Math.abs(mdd) > 0 ? (cumulative - 1) / Math.abs(mdd) : (cumulative - 1);
+        const romad = Math.abs(mdd) > 0 ? adjustedReturn / Math.abs(mdd) : adjustedReturn;
 
         let fitness = 0;
         switch (this.config.metric) {
@@ -732,6 +740,15 @@ const DiscoveryUI = {
                 if (btn) btn.textContent = `발굴 중... ${pct}%`;
             });
 
+            // [벤치마크 최적화] 정밀 검증 시작 전 벤치마크 데이터를 미리 로드하여 재사용
+            if (btn) btn.textContent = `벤치마크 로딩 중...`;
+            const bmkData = await API.fetchBenchmark(solver.dates.length + 30, '1d');
+            const sp500Data = await API.fetchSP500(solver.dates.length + 30, '1d');
+
+            const startStr = solver.dates[0];
+            const benchmarkHistory = bmkData.filter(d => d.date >= startStr);
+            const sp500History = sp500Data.filter(d => d.date >= startStr);
+
             // [핵심 개선] PSO 결과 TOP 50에 대해 '정밀 백테스트 엔진' 전수 조사 및 재정렬
             const initialCapital = Number(document.getElementById('dsInitialCapital').value.replace(/,/g, ''));
             const feeRate = Number(document.getElementById('dsFeeRate').value) / 100;
@@ -771,13 +788,22 @@ const DiscoveryUI = {
                     const engine = new DiscoveryEngine({
                         initialCapital, feeRate, taxRate,
                         strategy: { stocks, rebalanceType: config.rebalanceType, rebalancePeriod: config.rebalancePeriod, rebalanceThreshold: config.rebalanceThreshold },
-                        dates: solver.dates, historyMap, benchmarkHistory: [], sp500History: []
+                        dates: solver.dates, historyMap, benchmarkHistory, sp500History
                     });
                     res.preciseStats = engine.run();
                     // 정렬 기준(fitness)을 정밀 백테스트 결과로 갱신
                     res.fitness = res.preciseStats.totalReturn;
+
+                    // PSO 스탯과 정밀 스탯의 필드명 싱크 (absReturn, romad 등)
+                    res.preciseStats.absReturn = res.preciseStats.totalReturn;
+                    res.preciseStats.romad = res.preciseStats.calmar;
+                    res.preciseStats.sharpe = res.preciseStats.sharpe || 0;
+                    res.preciseStats.sortino = res.preciseStats.sortino || 0;
+                    res.preciseStats.infoRatio = res.preciseStats.infoRatio || 0;
+
                     res.stats.absReturn = res.preciseStats.totalReturn;
                     res.stats.mdd = res.preciseStats.mdd;
+                    res.stats.romad = res.preciseStats.romad;
                     res.stats.fitness = res.fitness;
 
                     completedCount++;
@@ -852,8 +878,6 @@ const DiscoveryUI = {
     displayDiscoveryList(results, metricKey, solverPool, solverConfig) {
         document.getElementById('dsEmptyState').style.display = 'none';
         document.getElementById('dsResultState').style.display = 'flex';
-        const metricNames = { return: '최대수익', sharpe: '샤프지수', romad: 'RoMAD', sortino: '소르티노' };
-        document.getElementById('thMetricValue').textContent = metricNames[metricKey];
         const logBody = document.getElementById('dsLogBody');
         logBody.innerHTML = '';
         const initialCapital = Number(document.getElementById('dsInitialCapital').value.replace(/,/g, ''));
@@ -867,9 +891,12 @@ const DiscoveryUI = {
             switch (this.currentSort.key) {
                 case 'rank': valA = a.originalRank; valB = b.originalRank; break;
                 case 'corr': valA = a.avgCorr; valB = b.avgCorr; break;
-                case 'fitness': valA = a.stats.fitness; valB = b.stats.fitness; break;
                 case 'return': valA = a.stats.absReturn; valB = b.stats.absReturn; break;
                 case 'mdd': valA = a.stats.mdd; valB = b.stats.mdd; break;
+                case 'sharpe': valA = a.stats.sharpe; valB = b.stats.sharpe; break;
+                case 'romad': valA = a.stats.romad; valB = b.stats.romad; break;
+                case 'sortino': valA = a.stats.sortino; valB = b.stats.sortino; break;
+                case 'ir': valA = (a.preciseStats?.infoRatio || 0); valB = (b.preciseStats?.infoRatio || 0); break;
                 default: return 0;
             }
             if (valA < valB) return this.currentSort.desc ? 1 : -1;
@@ -889,18 +916,24 @@ const DiscoveryUI = {
             }).join('');
 
             // 이미 정밀검증이 완료된 데이터를 사용
-            const pRet = (res.preciseStats?.totalReturn ?? res.stats.absReturn) * 100;
-            const pMdd = (res.preciseStats?.mdd ?? res.stats.mdd) * 100;
-            const pFitness = res.preciseStats?.totalReturn ?? res.stats.fitness;
-            const fitnessDisplay = metricKey === 'return' ? fmtPct(pFitness * 100) : pFitness.toFixed(2);
+            const s = res.preciseStats || res.stats;
+            const pRet = (s.absReturn ?? s.totalReturn ?? 0) * 100;
+            const pMdd = (s.mdd || 0) * 100;
+            const pSharpe = s.sharpe || 0;
+            const pRomad = s.romad ?? s.calmar ?? 0;
+            const pSortino = s.sortino || 0;
+            const pIR = s.infoRatio || 0;
 
             tr.innerHTML = `
                 <td>${res.originalRank}</td>
                 <td style="text-align:left;">${comboNamesHtml}</td>
-                <td style="font-size:11px; font-weight:500;">${res.avgCorr.toFixed(2)}</td>
-                <td style="color:var(--accent); font-weight:700;">${fitnessDisplay}</td>
-                <td class="res-td-ret ${pRet >= 0 ? 'up' : 'down'}">${fmtPct(pRet)}</td>
+                <td class="${pRet >= 0 ? 'up' : 'down'}" style="font-weight:600;">${fmtPct(pRet)}</td>
+                <td style="font-size:11px; font-weight:500; color:var(--text-muted);">${res.avgCorr.toFixed(2)}</td>
+                <td style="font-size:11px;">${pSharpe.toFixed(2)}</td>
+                <td style="font-size:11px;">${pSortino.toFixed(2)}</td>
+                <td style="font-size:11px;">${pIR.toFixed(2)}</td>
                 <td class="res-td-mdd down">${fmtPct(pMdd)}</td>
+                <td style="font-size:11px;">${pRomad.toFixed(2)}</td>
             `;
 
             // 행 클릭: 포트폴리오 전체 상세 분석
@@ -1091,147 +1124,12 @@ const DiscoveryUI = {
     }
 };
 
-class DiscoveryEngine {
-    constructor({ initialCapital, feeRate, taxRate, strategy, dates, historyMap, benchmarkHistory, sp500History }) {
-        this.initialCapital = initialCapital; this.feeRate = feeRate; this.taxRate = taxRate; this.strategy = strategy;
-        this.dates = dates; this.historyMap = historyMap; this.benchmarkHistory = benchmarkHistory; this.sp500History = sp500History || [];
-        this.historyDateMaps = {};
-        for (const t in this.historyMap) this.historyDateMaps[t] = new Map(this.historyMap[t].map(h => [h.date, h.close]));
-        this.benchmarkMap = new Map(this.benchmarkHistory.map(h => [h.date, h.close]));
-        this.sp500Map = new Map(this.sp500History.map(h => [h.date, h.close]));
-        this.currentCash = initialCapital; this.peakValue = 0; this.totalCost = 0;
-        this.holdings = {};
-        this.strategy.stocks.forEach(s => { this.holdings[s.ticker] = { qty: 0, weight: s.weight / 100, startPrice: 0 }; });
-        this.results = { dates: [], dailyValues: [], dailyReturns: [], benchmarkReturns: [], logs: [], initialCapital };
-    }
-
-    getPrice(ticker, date) { const m = this.historyDateMaps[ticker]; return m ? (m.get(date) || 0) : 0; }
-
-    run() {
-        const start = this.dates[0];
-        this.rebalance(start, "최초 매수", 0, true);
-        this.dates.forEach(date => {
-            const val = this.calculateTotalValue(date);
-            this.results.dates.push(date);
-            this.results.dailyValues.push(val);
-            this.results.dailyReturns.push((val / this.initialCapital) - 1);
-
-            // Re-calc benchmark cumulative
-            const bStart = this.benchmarkMap.get(this.dates[0]) || 1;
-            const bCurr = this.benchmarkMap.get(date) || bStart;
-            this.results.benchmarkReturns.push((bCurr / bStart) - 1);
-
-            if (this.strategy.rebalanceType === 'period' && this.shouldRebalance(date)) this.rebalance(date, "정기 리밸런싱");
-            else if (this.strategy.rebalanceType === 'deviation') {
-                const trigger = this.checkDeviation(val);
-                if (trigger) this.rebalance(date, "비중 이탈 리밸런싱", 0, false, null, trigger);
-            }
-        });
-        return this.calculateFinalStats();
-    }
-
-    calculateTotalValue(date) {
-        let total = this.currentCash;
-        for (const t in this.holdings) {
-            const p = this.getPrice(t, date);
-            if (p > 0) this.holdings[t].currentPrice = p;
-            total += this.holdings[t].qty * (this.holdings[t].currentPrice || 0);
-        }
-        return total;
-    }
-
-    shouldRebalance(date) {
-        if (!this.lastRebalanceDate) {
-            this.lastRebalanceDate = new Date(this.dates[0]);
-            return false;
-        }
-        const curr = new Date(date);
-        const last = this.lastRebalanceDate;
-        const diffDays = (curr - last) / (1000 * 60 * 60 * 24);
-
-        switch (this.strategy.rebalancePeriod) {
-            case '1wk': return diffDays >= 7;
-            case '2wk': return diffDays >= 14;
-            case '1mo': return curr.getMonth() !== last.getMonth() || curr.getFullYear() !== last.getFullYear();
-            case '3mo':
-                const monthDiff = (curr.getFullYear() - last.getFullYear()) * 12 + (curr.getMonth() - last.getMonth());
-                return monthDiff >= 3;
-            case '6mo':
-                const monthDiff6 = (curr.getFullYear() - last.getFullYear()) * 12 + (curr.getMonth() - last.getMonth());
-                return monthDiff6 >= 6;
-            case '1yr': return curr.getFullYear() !== last.getFullYear();
-            default: return false;
-        }
-    }
-
-    checkDeviation(total) {
-        for (const t in this.holdings) {
-            const h = this.holdings[t];
-            const weight = (h.qty * h.currentPrice) / total;
-            if (Math.abs(weight - h.weight) > (this.strategy.rebalanceThreshold / 100)) return t;
-        }
-        return null;
-    }
-
-    rebalance(date, reason, withdraw = 0, isInitial = false) {
-        let total = this.currentCash;
-        for (const t in this.holdings) {
-            const p = this.getPrice(t, date); if (p > 0) this.holdings[t].currentPrice = p;
-            total += this.holdings[t].qty * (this.holdings[t].currentPrice || 0);
-        }
-        const target = total - withdraw;
-        let cost = 0, stockVal = 0;
-        for (const t in this.holdings) {
-            const h = this.holdings[t]; if (h.currentPrice <= 0) continue;
-            const tQty = t === 'CASH' ? (target * h.weight) : Math.floor((target * h.weight) / h.currentPrice);
-            const diff = tQty - h.qty;
-            if (diff !== 0 && t !== 'CASH') {
-                cost += Math.abs(diff * h.currentPrice) * (this.feeRate + (diff < 0 ? this.taxRate : 0));
-            }
-            h.qty = tQty; if (isInitial) h.startPrice = h.currentPrice || 1;
-            stockVal += h.qty * h.currentPrice;
-        }
-        this.currentCash = target - cost - stockVal;
-        this.lastRebalanceDate = new Date(date);
-    }
-
-    calculateFinalStats() {
-        const vals = this.results.dailyValues;
-        const last = vals[vals.length - 1];
-        const totalReturn = (last / this.initialCapital) - 1;
-        let peak = 0, mdd = 0;
-        vals.forEach(v => { if (v > peak) peak = v; const dd = (v / peak) - 1; if (dd < mdd) mdd = dd; });
-        const start = new Date(this.results.dates[0]), end = new Date(this.results.dates[this.results.dates.length - 1]);
-        const years = Math.max((end - start) / (365.25 * 24 * 3600 * 1000), 0.01);
-        const cagr = Math.pow(last / this.initialCapital, 1 / years) - 1;
-        const returns = [];
-        for (let i = 1; i < vals.length; i++) returns.push((vals[i] / vals[i - 1]) - 1);
-        const avg = returns.reduce((a, b) => a + b, 0) / returns.length;
-        const std = Math.sqrt(returns.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / (returns.length - 1));
-        const dstd = Math.sqrt(returns.reduce((a, b) => a + Math.pow(Math.min(b, 0), 2), 0) / (returns.length - 1)) || 1;
-        const sharpe = std > 0 ? (avg / std) * Math.sqrt(252) : 0;
-        const sortino = dstd > 0 ? (avg / dstd) * Math.sqrt(252) : 0;
-        const calmar = Math.abs(mdd) > 0 ? cagr / Math.abs(mdd) : 0;
-
-        // Info Ratio 계산 (벤치마크 대비 초과 수익 / 추적 오차)
-        let infoRatio = 0;
-        const bmkRets = this.results.benchmarkReturns;
-        if (bmkRets && bmkRets.length === vals.length) {
-            const excessReturns = [];
-            for (let i = 0; i < returns.length; i++) {
-                const bDailyRet = ((1 + bmkRets[i + 1]) / (1 + bmkRets[i])) - 1;
-                excessReturns.push(returns[i] - bDailyRet);
-            }
-            if (excessReturns.length > 1) {
-                const avgExcess = excessReturns.reduce((a, b) => a + b, 0) / excessReturns.length;
-                const trackingError = Math.sqrt(excessReturns.reduce((a, b) => a + Math.pow(b - avgExcess, 2), 0) / (excessReturns.length - 1));
-                infoRatio = trackingError > 0 ? (avgExcess / trackingError) * Math.sqrt(252) : 0;
-            }
-        }
-
-        return { ...this.results, totalReturn, totalProfit: last - this.initialCapital, mdd, cagr, sharpe, sortino, calmar, infoRatio };
+class DiscoveryEngine extends BaseBacktestEngine {
+    constructor(params) {
+        super(params);
     }
 }
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     try { await Storage.init(); DiscoveryUI.init(); }

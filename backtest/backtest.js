@@ -354,10 +354,11 @@ const BacktestUI = {
         const rebalancePeriod = document.getElementById('btRebalancePeriod').value;
         const rebalanceThreshold = Number(document.getElementById('btRebalanceThreshold').value);
 
-        if (this.selectedStocks.length === 0) return;
-
-        document.getElementById('btLoading').style.display = 'flex';
-        document.getElementById('btLoadingProgress').textContent = '데이터 수집 중...';
+        const btn = document.getElementById('btnRunBacktest');
+        const originalBtnText = btn.textContent;
+        btn.disabled = true;
+        btn.classList.add('loading');
+        btn.textContent = '데이터 수집 중...';
 
         try {
             const stocksToFetch = this.selectedStocks.filter(s => s.code !== 'CASH');
@@ -370,10 +371,11 @@ const BacktestUI = {
             let benchmarkHistory = [];
             let sp500History = [];
             try {
-                const sp500 = await API.fetchStock('^GSPC', 300, '1d', 'US');
+                // 벤치마크 데이터는 주식 데이터와 동일하게 candleCount만큼 요청하여 차트 끊김 방지
+                const sp500 = await API.fetchStock('^GSPC', candleCount, '1d', 'US');
                 sp500History = sp500.allCandles || [];
-                const bmk = await API.fetchStock('000001.SS', 300, '1d', 'US');
-                const ks200 = await API.fetchStock('^KS200', 300, '1d', 'KS');
+                const bmk = await API.fetchStock('000001.SS', candleCount, '1d', 'US');
+                const ks200 = await API.fetchStock('^KS200', candleCount, '1d', 'KS');
                 benchmarkHistory = ks200.allCandles || [];
                 if (benchmarkHistory.length === 0 && bmk.allCandles) benchmarkHistory = bmk.allCandles;
             } catch (e) {
@@ -416,7 +418,7 @@ const BacktestUI = {
                 historyMap['CASH'] = commonDates.map(d => ({ date: d, close: 1 }));
             }
 
-            document.getElementById('btLoadingProgress').textContent = `시뮬레이션 진행 중... (${commonDates.length}거래일)`;
+            btn.textContent = `시뮬레이션 진행 중... (${commonDates.length}거래일)`;
 
             const engine = new BacktestEngine({
                 initialCapital,
@@ -440,7 +442,9 @@ const BacktestUI = {
         } catch (err) {
             showToast(err.message, 'error');
         } finally {
-            document.getElementById('btLoading').style.display = 'none';
+            btn.disabled = false;
+            btn.classList.remove('loading');
+            btn.textContent = originalBtnText;
         }
     },
 
@@ -488,17 +492,21 @@ const BacktestUI = {
             const pnlPct = (log.pnlPct || 0) * 100;
             const pnlClass = pnlPct >= 0 ? 'up' : 'down';
 
-            let displayMsg = log.msg;
-            if (log.type === '리밸런싱' || log.type === '매수' || log.type === '일부 매도' || log.type === '추가 매수') {
+            let displayMsg = '';
+            if (log.type === '매수') {
+                displayMsg = '최초 매수';
+            } else if (log.type === '리밸런싱') {
                 const match = log.msg.match(/\(비용: (.*?)\)/);
-                if (match) displayMsg = match[1];
+                displayMsg = match ? match[1] : log.msg;
+            } else {
+                displayMsg = log.msg;
             }
 
             tr.innerHTML = `
         <td>${log.date}</td>
         <td><span class="bt-log-type ${typeClass}">${log.type}</span></td>
         <td style="font-weight:600;">${displayMsg}</td>
-        <td>${log.type === '매수' ? '' : this.renderLogEvalDetail(log.evals, log.triggerTicker)}</td>
+        <td>${this.renderLogEvalDetail(log.evals, log.triggerTicker)}</td>
         <td class="${pnlClass}">${fmtPct(pnlPct)}</td>
         <td>${fmt(Math.round(log.value))}</td>
       `;
@@ -510,32 +518,34 @@ const BacktestUI = {
 
     renderLogEvalDetail(evals, triggerTicker = null) {
         if (!evals) return '';
-        let html = '<span class="log-eval-detail" style="display:inline-flex; flex-wrap:nowrap; gap:8px; align-items:center; white-space:nowrap;">';
 
-        // 리밸런싱 유발 종목이 있는 경우 (편차 리밸런싱 등) 해당 종목의 "전" 정보만 한 줄로 표시
         if (triggerTicker && evals[triggerTicker]) {
+            // 리밸런싱 유도(트리거) 종목 표시 (리밸런싱 전 비중 기준)
             const data = evals[triggerTicker];
-            const pnl = data.pnlPct * 100;
-            const cls = pnl >= 0 ? 'profit' : 'loss';
-            const bVal = data.beforeVal !== undefined ? data.beforeVal : (data.val || 0);
-            const bWeight = data.beforeWeight !== undefined ? data.beforeWeight : 0;
-
-            // 티커 코드 대신 종목명 찾기
             const stock = this.selectedStocks.find(s => s.ticker === triggerTicker || s.code === triggerTicker);
             const displayName = stock ? stock.name : triggerTicker;
-
-            html += `<span class="eval-item trigger-highlight" style="margin:0; padding:2px 8px;">
-                <b style="color:var(--text-primary)">${displayName}</b>: 
-                ${fmt(Math.round(bVal))}원 <span style="font-size:10px;color:var(--text-muted)">(${bWeight.toFixed(1)}%)</span>
-                <small class="${cls}" style="margin-left:4px;">(${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%)</small>
-            </span>`;
+            const weight = data.beforeWeight || 0;
+            return `<span style="color:var(--text-primary); font-weight:600;">${displayName}(${weight.toFixed(1)}%)</span>`;
         } else {
-            // 전체 리포트는 기획상 생략
-            return '';
-        }
+            // 최초 매수 시 전체 비중 표시 (리밸런싱 후 비중 기준)
+            const items = [];
+            const tickers = Object.keys(evals).filter(t => t !== 'CASH');
+            tickers.sort((a, b) => (evals[b].afterVal || 0) - (evals[a].afterVal || 0));
 
-        html += '</span>';
-        return html;
+            tickers.forEach(t => {
+                const data = evals[t];
+                const stock = this.selectedStocks.find(s => s.ticker === t || s.code === t);
+                const displayName = stock ? stock.name : t;
+                const weight = data.afterWeight || 0;
+                if (weight > 0.1) items.push(`${displayName}(${weight.toFixed(1)}%)`);
+            });
+
+            const cashData = evals['CASH'];
+            const cw = cashData ? (cashData.afterWeight || 0) : 0;
+            if (cw > 0.1) items.push(`현금(${cw.toFixed(1)}%)`);
+
+            return `<span style="color:var(--text-primary); font-weight:600;">${items.join(' ')}</span>`;
+        }
     },
 
     renderMainChart(result) {
@@ -602,380 +612,30 @@ const BacktestUI = {
     }
 };
 
-class BacktestEngine {
-    constructor({ initialCapital, feeRate, taxRate, strategy, dates, historyMap, benchmarkHistory, sp500History }) {
-        this.initialCapital = initialCapital;
-        this.feeRate = feeRate;
-        this.taxRate = taxRate;
-        this.strategy = strategy;
+class BacktestEngine extends BaseBacktestEngine {
+    constructor(params) {
+        super(params);
         if (this.strategy.stocks.length === 1) {
             this.strategy.rebalanceType = 'none';
         }
-        this.dates = dates;
-        this.historyMap = historyMap;
-        this.benchmarkHistory = benchmarkHistory;
-        this.sp500History = sp500History || [];
-
-        // ------------------------------------------------------------------
-        // 날짜→종가 Map 사전 구축 (O(n) 배열 탐색 → O(1) Map 조회)
-        // historyMap[ticker] 배열을 Map<date, close>로 변환
-        // ------------------------------------------------------------------
-        this.historyDateMaps = {};
-        for (const ticker in this.historyMap) {
-            this.historyDateMaps[ticker] = new Map(
-                this.historyMap[ticker].map(h => [h.date, h.close])
-            );
-        }
-        // 벤치마크 Map
-        this.benchmarkMap = new Map(
-            this.benchmarkHistory.map(h => [h.date, h.close])
-        );
-        this.sp500Map = new Map(
-            this.sp500History.map(h => [h.date, h.close])
-        );
-
-        // ------------------------------------------------------------------
-        // currentCash 회계 방식 설명:
-        //   - CASH 종목은 holdings['CASH'].qty 에서 관리 (1원=1주)
-        //   - this.currentCash 는 '잔여 미할당 현금 + 누적 수수료/세금 차감'
-        //   - 최초 배분 후: currentCash ≈ 0 (수수료만큼 음수 가능)
-        //   - 포트폴리오 총액 = this.currentCash + Σ(holdings[*].qty × price)
-        // ------------------------------------------------------------------
-        this.currentCash = initialCapital;
-        this.peakValue = 0;
-        this.troughValue = Infinity;
-        this.totalCost = 0;
-
-        this.holdings = {};
-        this.strategy.stocks.forEach(s => {
-            this.holdings[s.ticker] = { qty: 0, weight: s.weight / 100, startPrice: 0 };
-        });
-
-        this.results = {
-            dates: [],
-            dailyValues: [],
-            dailyReturns: [],
-            benchmarkReturns: [],
-            sp500Returns: [],
-            logs: [],
-            initialCapital,
-            initialWeights: { ...this.holdings }
-        };
-    }
-
-    /**
-     * 특정 날짜의 종목 종가를 O(1)로 반환.
-     * 해당 날짜 데이터가 없으면 0을 반환.
-     */
-    getPrice(ticker, date) {
-        const map = this.historyDateMaps[ticker];
-        if (!map) return 0;
-        return map.get(date) || 0;
+        this.results.sp500Returns = [];
     }
 
     run() {
-        const startDate = this.dates[0];
+        // BaseEngine의 run을 그대로 사용 (리밸런싱 로직 중복 방지)
+        const stats = super.run();
 
-        // 벤치마크 초기 종가 설정
-        const bmkStartClose = this.benchmarkMap.get(startDate) || 0;
-        const bmkStart = bmkStartClose > 0 ? bmkStartClose : (this.benchmarkHistory.length > 0 ? this.benchmarkHistory[0].close : 0);
-        let bmkPrevClose = bmkStart;
-
-        // S&P 500 초기 종가 설정
-        const sp500StartClose = this.sp500Map.get(startDate) || 0;
-        const spStart = sp500StartClose > 0 ? sp500StartClose : (this.sp500History.length > 0 ? this.sp500History[0].close : 0);
-        let spPrevClose = spStart;
-
-        this.rebalance(startDate, "최초 매수 (초기 구성)", 0, true);
-
-        let initialPortfolioValue = this.currentCash;
-        for (const ticker in this.holdings) {
-            initialPortfolioValue += this.holdings[ticker].qty * (this.holdings[ticker].currentPrice || 0);
-        }
-
-        this.peakValue = initialPortfolioValue;
-        this.troughValue = initialPortfolioValue;
-
-        this.results.dates.push(startDate);
-        this.results.dailyValues.push(initialPortfolioValue);
-        this.results.dailyReturns.push((initialPortfolioValue / this.initialCapital) - 1);
-        this.results.benchmarkReturns.push(0);
-        this.results.sp500Returns.push(0);
-
-        for (let i = 1; i < this.dates.length; i++) {
-            const date = this.dates[i];
-            const prevDate = this.dates[i - 1];
-
-            // 포트폴리오 총액 = 잔여 현금 + Σ(보유수량 × 당일 종가)
-            let portfolioValue = this.currentCash;
-            for (const ticker in this.holdings) {
-                const h = this.holdings[ticker];
-                // O(1) Map 조회로 당일 종가 업데이트
-                const price = this.getPrice(ticker, date);
-                if (price > 0) h.currentPrice = price;
-                portfolioValue += h.qty * h.currentPrice;
-            }
-
-            if (portfolioValue > this.peakValue) {
-                this.peakValue = portfolioValue;
-                this.troughValue = Infinity;
-            } else {
-                if (portfolioValue < this.troughValue) this.troughValue = portfolioValue;
-            }
-
-            if (this.strategy.rebalanceType === 'period') {
-                if (this.isRebalanceDay(date, prevDate)) {
-                    this.rebalance(date, "정기 리밸런싱");
-                    portfolioValue = this.currentCash;
-                    for (const ticker in this.holdings) portfolioValue += this.holdings[ticker].qty * this.holdings[ticker].currentPrice;
-                }
-            } else if (this.strategy.rebalanceType === 'deviation') {
-                const triggerTicker = this.checkDeviation(portfolioValue);
-                if (triggerTicker) {
-                    this.rebalance(date, "상시 편차 리밸런싱", 0, false, null, triggerTicker);
-                    portfolioValue = this.currentCash;
-                    for (const ticker in this.holdings) portfolioValue += this.holdings[ticker].qty * this.holdings[ticker].currentPrice;
-                }
-            }
-            // rebalanceType === 'none' -> do nothing
-
-            this.results.dates.push(date);
-            this.results.dailyValues.push(portfolioValue);
-
-            const totalInvested = this.initialCapital;
-            this.results.dailyReturns.push((portfolioValue / totalInvested) - 1);
-
-            if (bmkStart > 0) {
-                // O(1) 벤치마크 Map 조회 - 누락된 날짜는 이전 종가 유지
-                const bmkPrice = this.benchmarkMap.get(date) || bmkPrevClose;
-                bmkPrevClose = bmkPrice;
-                this.results.benchmarkReturns.push((bmkPrice / bmkStart) - 1);
-            } else {
-                this.results.benchmarkReturns.push(0);
-            }
-
-            if (spStart > 0) {
-                const spPrice = this.sp500Map.get(date) || spPrevClose;
-                spPrevClose = spPrice;
-                this.results.sp500Returns.push((spPrice / spStart) - 1);
-            } else {
-                this.results.sp500Returns.push(0);
-            }
-        }
-
-        // --- 최종 결과 로그 추가 ---
-        const lastDate = this.dates[this.dates.length - 1];
-        let finalPortfolioValue = this.currentCash;
-        const finalEvals = {};
-        for (const ticker in this.holdings) {
-            const h = this.holdings[ticker];
-            const val = h.qty * (h.currentPrice || 0);
-            finalPortfolioValue += val;
-            finalEvals[ticker] = {
-                afterVal: val,
-                pnlPct: h.startPrice > 0 ? (h.currentPrice / h.startPrice) - 1 : 0
-            };
-        }
-        for (const ticker in finalEvals) {
-            finalEvals[ticker].afterWeight = finalPortfolioValue > 0 ? (finalEvals[ticker].afterVal / finalPortfolioValue) * 100 : 0;
-        }
-        const finalPnlPct = (finalPortfolioValue / this.initialCapital) - 1;
-        this.addLog(lastDate, '최종 결과', '', finalPortfolioValue, finalEvals, finalPnlPct);
-        // ------------------------
-
-        return this.calculateFinalStats();
-    }
-
-    isRebalanceDay(date, prevDate) {
-        const d = new Date(date), pd = new Date(prevDate);
-        switch (this.strategy.rebalancePeriod) {
-            case '1wk': {
-                // 월요일 기준 주 시작일을 계산해 비교
-                // 이전 방식(getDay() < pd.getDay())은 공휴일로 인해
-                // 같은 주 내 요일이 역전되는 경우 리밸런싱을 누락하는 버그가 있었음
-                const weekStart = (dt) => {
-                    const day = new Date(dt);
-                    const offset = (day.getDay() + 6) % 7; // Mon=0, Tue=1, ... Sun=6
-                    day.setDate(day.getDate() - offset);
-                    return day.toISOString().substring(0, 10);
-                };
-                return weekStart(d) !== weekStart(pd);
-            }
-            case '1mo': return d.getMonth() !== pd.getMonth() || d.getFullYear() !== pd.getFullYear();
-            case '3mo': {
-                const quarterChanged = Math.floor(d.getMonth() / 3) !== Math.floor(pd.getMonth() / 3);
-                const yearChanged = d.getFullYear() !== pd.getFullYear();
-                return quarterChanged || yearChanged;
-            }
-            case '1yr': return d.getFullYear() !== pd.getFullYear();
-            default: return false;
-        }
-    }
-
-    checkDeviation(totalValue) {
-        if (totalValue <= 0) return null;
-        for (const ticker in this.holdings) {
-            const h = this.holdings[ticker];
-            const actualWeight = (h.qty * h.currentPrice) / totalValue;
-            if (Math.abs(actualWeight - h.weight) > (this.strategy.rebalanceThreshold / 100)) return ticker;
-        }
-        return null;
-    }
-
-    rebalance(date, reason, withdrawAmount = 0, isInitial = false, logTypeOverride = null, triggerTicker = null) {
-        // 현재 포트폴리오 총액 산출 (잔여 현금 + 보유 종목 평가액)
-        let currentTotal = this.currentCash;
-        const beforeVals = {};
-        for (const ticker in this.holdings) {
-            const h = this.holdings[ticker];
-            // O(1) Map 조회로 당일 종가 업데이트
-            const price = this.getPrice(ticker, date);
-            if (price > 0) h.currentPrice = price;
-            const bVal = h.qty * (h.currentPrice || 0);
-            beforeVals[ticker] = bVal;
-            currentTotal += bVal;
-        }
-
-        const targetTotal = currentTotal - withdrawAmount;
-        let costThisTime = 0;
-
-        for (const ticker in this.holdings) {
-            const h = this.holdings[ticker];
-            if (h.currentPrice <= 0) continue;
-            const targetVal = targetTotal * h.weight;
-            // CASH: qty = 금액 그 자체 (1원=1주)
-            // 주식:  qty = floor(목표금액 / 현재가) — 호가 단위 무시한 근사치
-            const targetQty = ticker === 'CASH' ? targetVal : Math.floor(targetVal / h.currentPrice);
-            const diff = targetQty - h.qty;
-            if (diff !== 0) {
-                const tradeAmt = Math.abs(diff * h.currentPrice);
-                if (ticker !== 'CASH') {
-                    // 매수/매도 수수료
-                    costThisTime += tradeAmt * this.feeRate;
-                    // 매도 시 거래세 (한국 증권거래세: 모든 매도에 적용)
-                    // 양도소득세가 목적이라면 손실 매도 제외 로직 별도 추가 필요
-                    if (diff < 0) costThisTime += tradeAmt * this.taxRate;
-                }
-                h.qty = targetQty;
-            }
-            if (isInitial && ticker !== 'CASH') h.startPrice = h.currentPrice;
-            if (isInitial && ticker === 'CASH') h.startPrice = 1;
-        }
-
-        this.totalCost += costThisTime;
-
-        let newTotalStockValue = 0;
-        const evals = {};
-        for (const ticker in this.holdings) {
-            const h = this.holdings[ticker];
-            const val = h.qty * (h.currentPrice || 0);
-            newTotalStockValue += val;
-            evals[ticker] = {
-                beforeVal: isInitial ? 0 : beforeVals[ticker],
-                beforeWeight: isInitial ? 0 : (beforeVals[ticker] / currentTotal) * 100,
-                afterVal: val,
-                pnlPct: h.startPrice > 0 ? (h.currentPrice / h.startPrice) - 1 : 0
-            };
-        }
-
-        // 잔여 현금 = 목표 총액 - 수수료/세금 - 주식+현금 포지션 평가액
-        // ⚠️ 수수료로 인해 소폭 음수가 될 수 있음 (회계적으로 정상 — 비용 차감 표현)
-        this.currentCash = targetTotal - costThisTime - newTotalStockValue;
-
-        const finalPortfolioValue = this.currentCash + newTotalStockValue;
-        const invested = this.initialCapital;
-        const pnlPct = (finalPortfolioValue / invested) - 1;
-
-        for (const ticker in evals) {
-            evals[ticker].afterWeight = (evals[ticker].afterVal / finalPortfolioValue) * 100;
-        }
-
-        let logType = isInitial ? '매수' : '리밸런싱';
-        if (logTypeOverride) {
-            logType = logTypeOverride;
-        } else if (!isInitial && Object.keys(this.holdings).length === 1) {
-            logType = withdrawAmount > 0 ? '일부 매도' : '추가 매수';
-        }
-
-        this.addLog(date, logType, `${reason} (비용: ${fmt(Math.round(costThisTime))}원)`, finalPortfolioValue, evals, pnlPct, triggerTicker);
-    }
-
-    addLog(date, type, msg, value, evals, pnlPct = 0, triggerTicker = null) {
-        this.results.logs.push({ date, type, msg, value, evals, pnlPct, triggerTicker });
-    }
-
-    calculateFinalStats() {
-        const values = this.results.dailyValues;
-        const initial = this.initialCapital;
-        const last = values[values.length - 1];
-        const totalInvested = this.initialCapital;
-        const totalReturn = (last / totalInvested) - 1;
-        let peak = 0, maxDD = 0;
-        values.forEach(v => {
-            if (v > peak) peak = v;
-            const dd = (v / peak) - 1;
-            if (dd < maxDD) maxDD = dd;
+        // S&P 500 데이터 추가 (백테스트 탭 전용)
+        const start = this.dates[0];
+        const sStart = this.sp500Map.get(start) || 1;
+        this.results.sp500Returns = this.dates.map(date => {
+            return ((this.sp500Map.get(date) || sStart) / sStart) - 1;
         });
-        // CAGR: 실제 달력 기간(일수) 기반으로 연수 계산
-        const firstDate = new Date(this.results.dates[0]);
-        const lastDate = new Date(this.results.dates[this.results.dates.length - 1]);
-        const years = Math.max((lastDate - firstDate) / (365.25 * 24 * 3600 * 1000), 1 / 252);
-        const cagr = Math.pow(last / totalInvested, 1 / years) - 1;
-        const covReturns = [];
-        let downReturns = [];
-        let bmkAvgRet = 0;
-        let excessReturns = [];
-        const returns = [];
 
-        for (let i = 1; i < values.length; i++) {
-            const r = (values[i] / values[i - 1]) - 1;
-            returns.push(r);
-            if (r < 0) downReturns.push(r);
-
-            const bmkRet = this.results.benchmarkReturns[i];
-            // Recover actual daily benchmark return, benchmarkReturns array stores cumulative returns
-            // So we need to reconstruct daily excess returns for Info Ratio.
-            // But benchmarkReturns is already calculated. We can just use daily difference in benchmark.
-        }
-
-        // recalculate benchmark daily return
-        if (this.benchmarkHistory && this.benchmarkHistory.length > 0) {
-            const bReturns = [];
-            // 전체 히스토리 첫 캔들이 아닌, 실제 백테스팅 시작일 종가를 기준으로 사용
-            let bStart = this.benchmarkMap.get(this.results.dates[0]) || this.benchmarkHistory[0].close;
-            for (let i = 1; i < this.results.dates.length; i++) {
-                const bDailyCurrent = this.benchmarkMap.get(this.results.dates[i]) || bStart;
-                const bDailyPrev = this.benchmarkMap.get(this.results.dates[i - 1]) || bStart;
-                const bDailyRet = (bDailyCurrent / bDailyPrev) - 1;
-                bReturns.push(bDailyRet);
-                excessReturns.push(returns[i - 1] - bDailyRet);
-            }
-        } else {
-            for (let i = 1; i < values.length; i++) excessReturns.push(returns[i - 1]);
-        }
-
-        const avgRet = returns.length > 0 ? (returns.reduce((a, b) => a + b, 0) / returns.length) : 0;
-        // 표본표준편차(N-1) 사용 — Sharpe/Sortino가 과대계상되지 않도록
-        const stdDev = returns.length > 1 ? (Math.sqrt(returns.reduce((a, b) => a + Math.pow(b - avgRet, 2), 0) / (returns.length - 1))) : 1;
-
-        // Downside deviation (for Sortino) — MAR = 0 기준 (표준 공식)
-        // min(r,0)^2 의 평균 제곱근: 손실 수익률만 패널티, 기준점은 항상 0
-        const downStdDev = returns.length > 1
-            ? (Math.sqrt(returns.reduce((acc, r) => acc + Math.pow(Math.min(r, 0), 2), 0) / (returns.length - 1)) || 1)
-            : 1;
-
-        // Tracking error (for Info Ratio)
-        const avgExcessRet = excessReturns.length > 0 ? (excessReturns.reduce((a, b) => a + b, 0) / excessReturns.length) : 0;
-        const trackingError = excessReturns.length > 1 ? (Math.sqrt(excessReturns.reduce((a, b) => a + Math.pow(b - avgExcessRet, 2), 0) / (excessReturns.length - 1))) : 1;
-
-        const sharpe = stdDev > 0 ? (avgRet / stdDev) * Math.sqrt(252) : 0;
-        const sortino = downStdDev > 0 ? (avgRet / downStdDev) * Math.sqrt(252) : 0;
-        const calmar = maxDD < 0 ? cagr / Math.abs(maxDD) : 0;
-        const infoRatio = trackingError > 0 ? (avgExcessRet / trackingError) * Math.sqrt(252) : 0;
-
-        return { ...this.results, totalReturn, totalProfit: last - totalInvested, mdd: maxDD, cagr, sharpe, sortino, calmar, infoRatio };
+        return stats;
     }
 }
+
 
 document.addEventListener('DOMContentLoaded', async () => {
     try {

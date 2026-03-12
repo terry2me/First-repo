@@ -645,7 +645,7 @@ input[type=number] {
     padding: 0;
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
+    overflow: auto;
     margin-bottom: 4px;
     /* Reduced from 12px */
 }
@@ -723,9 +723,8 @@ input[type=number] {
     font-size: 11px;
     cursor: pointer;
     vertical-align: middle;
-    width: 162px;
-    /* Reduced to 90% of 180px */
-    max-width: 162px;
+    width: 30ch;
+    max-width: 30ch;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

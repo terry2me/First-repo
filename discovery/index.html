@@ -161,12 +161,15 @@
                         <thead id="dsLogHead"
                             style="position: sticky; top: 0; z-index: 10; background: var(--bg-surface);">
                             <tr>
-                                <th style="width: 85px; cursor:pointer;" data-sort="rank">순위</th>
-                                <th>종목 조합</th>
-                                <th style="width: 80px; cursor:pointer;" data-sort="corr">상관관계</th>
-                                <th style="width: 80px; cursor:pointer;" id="thMetricValue" data-sort="fitness">지표값</th>
-                                <th style="width: 45px; cursor:pointer;" data-sort="return">수익률</th>
-                                <th style="width: 45px; cursor:pointer;" data-sort="mdd">MDD</th>
+                                <th style="width: 40px; cursor:pointer;" data-sort="rank">순위</th>
+                                <th style="min-width: 120px;">종목 조합</th>
+                                <th style="width: 60px; cursor:pointer;" data-sort="return">수익률</th>
+                                <th style="width: 50px; cursor:pointer;" data-sort="corr">상관관계</th>
+                                <th style="width: 50px; cursor:pointer;" data-sort="sharpe">샤프지수</th>
+                                <th style="width: 50px; cursor:pointer;" data-sort="sortino">소르티노</th>
+                                <th style="width: 65px; cursor:pointer;" data-sort="ir">Info Ratio</th>
+                                <th style="width: 50px; cursor:pointer;" data-sort="mdd">MDD</th>
+                                <th style="width: 55px; cursor:pointer;" data-sort="romad">RoMDD</th>
                             </tr>
                         </thead>
                         <tbody id="dsLogBody">
@@ -197,6 +200,7 @@
     <script src="../common/js/config.js"></script>
     <script src="../common/js/storage.js"></script>
     <script src="../common/js/api.js"></script>
+    <script src="../common/js/backtest_engine.js"></script>
     <script>
         // Utils needed by discovery.js
         function fmt(num) {
@@ -220,6 +224,16 @@
             t.innerHTML = content;
             c.appendChild(t);
             requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('toast-show')));
+
+            // 정상 종료(success, info)인 경우 3초 후 자동 닫기
+            if (type === 'success' || type === 'info') {
+                setTimeout(() => {
+                    if (t.parentElement) {
+                        t.classList.remove('toast-show');
+                        setTimeout(() => t.remove(), 300);
+                    }
+                }, 3000);
+            }
         }
     </script>
     <script src="discovery.js"></script>

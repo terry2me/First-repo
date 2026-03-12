@@ -34,17 +34,18 @@ const Indicators = (() => {
    *                   period 미달 구간은 null 값으로 채움
    */
   function bollingerBands(closes, period = 20, mult = 2) {
+    if (!closes || closes.length === 0) return [];
     return closes.map((_, i) => {
       if (i < period - 1) {
         return { upper: null, middle: null, lower: null };
       }
       const slice = closes.slice(i - period + 1, i + 1);
-      const ma    = mean(slice);
-      const sd    = stdDev(slice);
+      const ma = mean(slice);
+      const sd = stdDev(slice);
       return {
-        upper:  parseFloat((ma + mult * sd).toFixed(2)),
+        upper: parseFloat((ma + mult * sd).toFixed(2)),
         middle: parseFloat(ma.toFixed(2)),
-        lower:  parseFloat((ma - mult * sd).toFixed(2)),
+        lower: parseFloat((ma - mult * sd).toFixed(2)),
       };
     });
   }
@@ -60,9 +61,9 @@ const Indicators = (() => {
       const ma = mean(closes);
       const sd = stdDev(closes);
       return {
-        upper:  parseFloat((ma + mult * sd).toFixed(2)),
+        upper: parseFloat((ma + mult * sd).toFixed(2)),
         middle: parseFloat(ma.toFixed(2)),
-        lower:  parseFloat((ma - mult * sd).toFixed(2)),
+        lower: parseFloat((ma - mult * sd).toFixed(2)),
       };
     }
     const bands = bollingerBands(closes, period, mult);
@@ -123,22 +124,22 @@ const Indicators = (() => {
     const { closes, candles, allCandles, currentPrice, displayDays } = stockData;
 
     // ── 전체 데이터로 BB 계산 ──
-    const allBands  = bollingerBands(closes, period);
-    const latest    = latestBB(closes, period);
+    const allBands = bollingerBands(closes, period);
+    const latest = latestBB(closes, period);
 
     // ── 화면용 캔들에 BB 값 매핑 ──
     // allCandles 기준 인덱스를 맞춰 화면 슬라이스에 붙임
-    const totalLen  = (allCandles || candles).length;
-    const sliceLen  = candles.length;
-    const offset    = totalLen - sliceLen;   // 앞에 잘린 개수
+    const totalLen = (allCandles || candles).length;
+    const sliceLen = candles.length;
+    const offset = totalLen - sliceLen;   // 앞에 잘린 개수
 
     const candlesWithBB = candles.map((c, i) => {
       const bi = offset + i;               // allBands 내 인덱스
       return {
         ...c,
-        bbUpper:  allBands[bi]?.upper  ?? null,
+        bbUpper: allBands[bi]?.upper ?? null,
         bbMiddle: allBands[bi]?.middle ?? null,
-        bbLower:  allBands[bi]?.lower  ?? null,
+        bbLower: allBands[bi]?.lower ?? null,
       };
     });
 
@@ -148,8 +149,8 @@ const Indicators = (() => {
 
     return {
       ...stockData,
-      bb:           latest,           // 최신 BB 값
-      bbRatio:      alert.ratio,      // 0.0~1.0
+      bb: latest,           // 최신 BB 값
+      bbRatio: alert.ratio,      // 0.0~1.0
       alert,                          // 경고 레벨
       candlesWithBB,                  // 차트용 데이터 (화면 N일 + BB 값)
     };
@@ -174,17 +175,17 @@ const Indicators = (() => {
    * @returns {Array}  [{eom, signal, crossSignal}]  length = candles.length, 앞부분 null
    */
   function eom(candles, period = 14, signal = 14) {
-    const n   = candles.length;
+    const n = candles.length;
     const raw = new Array(n).fill(null);
 
     // 1) 원시 EOM 계산 (i>=1 부터)
     for (let i = 1; i < n; i++) {
-      const c  = candles[i], p = candles[i - 1];
+      const c = candles[i], p = candles[i - 1];
       const hl = c.high - c.low;
       if (hl === 0 || !c.volume) { raw[i] = 0; continue; }
       const dm = ((c.high + c.low) / 2) - ((p.high + p.low) / 2);
       const br = c.volume / hl;
-      raw[i]   = br !== 0 ? dm / br : 0;
+      raw[i] = br !== 0 ? dm / br : 0;
     }
 
     // 2) EOM SMA(period)
@@ -216,9 +217,9 @@ const Indicators = (() => {
           // EOM이 Signal을 하향 돌파 → SELL
           else if (ep >= sp && e < s) crossSignal = 'SELL';
           // EOM이 0선 상향 돌파 → BUY (신호 없으면)
-          else if (!crossSignal && eomArr[i-1] !== null && eomArr[i-1] < 0 && e >= 0) crossSignal = 'BUY';
+          else if (!crossSignal && eomArr[i - 1] !== null && eomArr[i - 1] < 0 && e >= 0) crossSignal = 'BUY';
           // EOM이 0선 하향 돌파 → SELL
-          else if (!crossSignal && eomArr[i-1] !== null && eomArr[i-1] >= 0 && e < 0) crossSignal = 'SELL';
+          else if (!crossSignal && eomArr[i - 1] !== null && eomArr[i - 1] >= 0 && e < 0) crossSignal = 'SELL';
         }
       }
       result.push({ eom: e, signal: s, crossSignal });
@@ -238,7 +239,8 @@ const Indicators = (() => {
    * @returns {number[]}  length = closes.length, 앞부분 null
    */
   function rsi(closes, period = 14) {
-    const n   = closes.length;
+    if (!closes || closes.length < 2) return new Array(closes ? closes.length : 0).fill(null);
+    const n = closes.length;
     const out = new Array(n).fill(null);
     if (n < period + 1) return out;
 
@@ -248,14 +250,14 @@ const Indicators = (() => {
     for (let i = 1; i <= period; i++) {
       const diff = closes[i] - closes[i - 1];
       if (diff > 0) avgGain += diff;
-      else          avgLoss += Math.abs(diff);
+      else avgLoss += Math.abs(diff);
     }
     avgGain /= period;
     avgLoss /= period;
 
     out[period] = avgLoss === 0 ? 100
-                : avgGain === 0 ?   0
-                : parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2));
+      : avgGain === 0 ? 0
+        : parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2));
 
     // Wilder 평활
     for (let i = period + 1; i < n; i++) {
@@ -265,8 +267,8 @@ const Indicators = (() => {
       avgGain = (avgGain * (period - 1) + gain) / period;
       avgLoss = (avgLoss * (period - 1) + loss) / period;
       out[i] = avgLoss === 0 ? 100
-             : avgGain === 0 ?   0
-             : parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2));
+        : avgGain === 0 ? 0
+          : parseFloat((100 - 100 / (1 + avgGain / avgLoss)).toFixed(2));
     }
     return out;
   }
@@ -286,16 +288,17 @@ const Indicators = (() => {
    * @returns {Array}  [{fastK, slowK, slowD}]
    */
   function stochastic(candles, k1 = 14, k2 = 3, d = 3) {
-    const n     = candles.length;
+    if (!candles || candles.length === 0) return [];
+    const n = candles.length;
     const fastK = new Array(n).fill(null);
 
     // 원시 Fast %K
     for (let i = k1 - 1; i < n; i++) {
       const slice = candles.slice(i - k1 + 1, i + 1);
-      const lo    = Math.min(...slice.map(c => c.low));
-      const hi    = Math.max(...slice.map(c => c.high));
-      const rng   = hi - lo;
-      fastK[i]    = rng === 0 ? 50 : parseFloat(((candles[i].close - lo) / rng * 100).toFixed(2));
+      const lo = Math.min(...slice.map(c => c.low));
+      const hi = Math.max(...slice.map(c => c.high));
+      const rng = hi - lo;
+      fastK[i] = rng === 0 ? 50 : parseFloat(((candles[i].close - lo) / rng * 100).toFixed(2));
     }
 
     // Slow %K = SMA(fastK, k2)
@@ -336,18 +339,18 @@ const Indicators = (() => {
       ob = 80, os = 20,
     } = opts;
 
-    const rsiArr   = rsi(closes, rsiPeriod);
+    const rsiArr = rsi(closes, rsiPeriod);
     const stochArr = stochastic(candles, k1, k2, d);
-    const n        = closes.length;
+    const n = closes.length;
 
     return rsiArr.map((r, i) => {
       const st = stochArr[i];
       let signal = null;
       if (r !== null && st.slowK !== null && st.slowD !== null) {
         const prevSt = i > 0 ? stochArr[i - 1] : null;
-        const kCrossUp   = prevSt && prevSt.slowK !== null && prevSt.slowK <= prevSt.slowD && st.slowK > st.slowD;
+        const kCrossUp = prevSt && prevSt.slowK !== null && prevSt.slowK <= prevSt.slowD && st.slowK > st.slowD;
         const kCrossDown = prevSt && prevSt.slowK !== null && prevSt.slowK >= prevSt.slowD && st.slowK < st.slowD;
-        if (r < 50 && st.slowK < os + 10 && kCrossUp)   signal = 'BUY';
+        if (r < 50 && st.slowK < os + 10 && kCrossUp) signal = 'BUY';
         if (r > 50 && st.slowK > ob - 10 && kCrossDown) signal = 'SELL';
       }
       return { rsi: r, slowK: st.slowK, slowD: st.slowD, signal };
@@ -360,29 +363,29 @@ const Indicators = (() => {
   function analyzeAll(stockData, bbPeriod = 20) {
     const base = analyze(stockData, bbPeriod);
 
-    const allC   = stockData.allCandles || stockData.candles;
+    const allC = stockData.allCandles || stockData.candles;
     const allCls = stockData.closes;
-    const total  = allC.length;
-    const slice  = stockData.candles.length;
+    const total = allC.length;
+    const slice = stockData.candles.length;
     const offset = total - slice;
 
     // EOM
     const eomAll = eom(allC, 14, 14);
     // RSI + Stochastic
-    const rsStAll = rsiStoch(allCls, allC, { rsiPeriod:14, k1:14, k2:3, d:3, ob:80, os:20 });
+    const rsStAll = rsiStoch(allCls, allC, { rsiPeriod: 14, k1: 14, k2: 3, d: 3, ob: 80, os: 20 });
 
     // 화면 슬라이스에 붙이기
     const candlesWithIndicators = base.candlesWithBB.map((c, i) => {
       const bi = offset + i;
       return {
         ...c,
-        eom:         eomAll[bi]?.eom         ?? null,
-        eomSignal:   eomAll[bi]?.signal      ?? null,
-        eomCross:    eomAll[bi]?.crossSignal ?? null,
-        rsi:         rsStAll[bi]?.rsi        ?? null,
-        slowK:       rsStAll[bi]?.slowK      ?? null,
-        slowD:       rsStAll[bi]?.slowD      ?? null,
-        rsiStSignal: rsStAll[bi]?.signal     ?? null,
+        eom: eomAll[bi]?.eom ?? null,
+        eomSignal: eomAll[bi]?.signal ?? null,
+        eomCross: eomAll[bi]?.crossSignal ?? null,
+        rsi: rsStAll[bi]?.rsi ?? null,
+        slowK: rsStAll[bi]?.slowK ?? null,
+        slowD: rsStAll[bi]?.slowD ?? null,
+        rsiStSignal: rsStAll[bi]?.signal ?? null,
       };
     });
 
