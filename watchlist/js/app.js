@@ -677,10 +677,27 @@ async function _intervalSwitch(interval) {
    우단 전체 새로고침 (비동기 스텔스 갱신)
 ══════════════════════════════════════════════ */
 async function doRefreshAll(btn) {
-  const tabStocks = Storage.getWatchlist();   // 현재 탭 종목만
-  if (!tabStocks.length) return;
+  // 1. 현재 활성 탭 종목
+  const activeStocks = Storage.getWatchlist();
+  const activeCodes = new Set(activeStocks.map(s => s.code));
 
-  const total = tabStocks.length;
+  // 2. 나머지 모든 탭 종목 수집
+  const otherStocks = [];
+  const seen = new Set(activeCodes);
+  Storage.getTabs().forEach(tab => {
+    tab.stocks.forEach(s => {
+      if (!seen.has(s.code)) {
+        seen.add(s.code);
+        otherStocks.push(s);
+      }
+    });
+  });
+
+  const totalStocks = [...activeStocks, ...otherStocks];
+  const total = totalStocks.length;
+
+  if (total === 0) return;
+
   let done = 0;
 
   btn.disabled = true;
@@ -693,26 +710,47 @@ async function doRefreshAll(btn) {
 
     btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (0/${total})`;
 
-    // 2. 주가 갱신 (배치 처리)
-    await API.fetchRefresh(tabStocks, AppState.candleCount, AppState.listInterval,
-      (code, res, err) => {
-        done++;
-        if (res) {
-          const analyzed = Indicators.analyzeAll(res);
-          AppState.watchData[code] = analyzed;
-          _refreshListItem(code);
-          if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+    // Phase 1: 현재 탭 주가 갱신 (배치 처리)
+    if (activeStocks.length > 0) {
+      await API.fetchRefresh(activeStocks, AppState.candleCount, AppState.listInterval,
+        (code, res, err) => {
+          done++;
+          if (res) {
+            const analyzed = Indicators.analyzeAll(res);
+            AppState.watchData[code] = analyzed;
+            _refreshListItem(code);
+            if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
 
-          if (AppState.previewCode === code && AppState.previewInterval === AppState.listInterval) {
-            AppState.previewData = analyzed;
-            renderPreview(analyzed);
+            if (AppState.previewCode === code && AppState.previewInterval === AppState.listInterval) {
+              AppState.previewData = analyzed;
+              renderPreview(analyzed);
+            }
+          } else {
+            console.warn(`[${code}] 조회 실패:`, err?.message);
+            showToast(`종목 갱신 실패 [${code}]: ${err?.message || '데이터 없음'}`, 'error');
           }
-        } else {
-          console.warn(`[${code}] 조회 실패:`, err?.message);
+          btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (${done}/${total})`;
         }
-        btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (${done}/${total})`;
-      }
-    );
+      );
+    }
+    
+    // Phase 2: 나머지 모든 탭 종목 백그라운드 갱신
+    if (otherStocks.length > 0) {
+      await API.fetchRefresh(otherStocks, AppState.candleCount, AppState.listInterval,
+        (code, res, err) => {
+          done++;
+          if (res) {
+            const analyzed = Indicators.analyzeAll(res);
+            AppState.watchData[code] = analyzed;
+            if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
+          } else {
+            console.warn(`[${code}] 조용한 백그라운드 조회 실패:`, err?.message);
+            showToast(`백그라운드 갱신 실패 [${code}]: ${err?.message || '데이터 없음'}`, 'error');
+          }
+          btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 주가 갱신 중... (${done}/${total})`;
+        }
+      );
+    }
 
     // 3. 상관관계 분석 요청 및 대기 (await)
     btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 상관관계 분석 중...`;
@@ -720,7 +758,7 @@ async function doRefreshAll(btn) {
 
     // 4. 분석된 상관관계 메타 데이터 재로드 (DB Only 호출)
     btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> 데이터 동기화 중...`;
-    await API.fetchBatch(tabStocks, AppState.candleCount, AppState.listInterval,
+    await API.fetchBatch(totalStocks, AppState.candleCount, AppState.listInterval,
       (code, res, err) => {
         if (res && AppState.watchData[code]) {
           AppState.watchData[code].correlations = res.correlations;

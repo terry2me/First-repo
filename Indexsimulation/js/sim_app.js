@@ -25,18 +25,52 @@ const SimState = {
   bbFilterActive: true,
   bbFilterThreshold: 0,
   eomFilterActive: false,
+  eomPeriod: 14,    // EOM SMA 기간 (표준: 14)
+  eomSignal: 14,    // EOM Signal SMA 기간 (표준: 14)
   rsiFilterActive: false,
+  stochFilterActive: false,
+  // RSI 파라미터
+  rsiPeriod: 14,
+  rsiOB: 70,    // RSI 전용 과매수 (표준: 70)
+  rsiOS: 30,    // RSI 전용 과매도 (표준: 30)
+  // Stochastic 파라미터
+  stochK: 14,
+  stochSK: 3,
+  stochSD: 3,
+  // Stochastic 전용 기준선
+  stochOB: 80,  // Stochastic 전용 과매수 (표준: 80)
+  stochOS: 20,  // Stochastic 전용 과매도 (표준: 20)
   // 시뮬레이션 파라미터
   simPeriodMonths: 6,
   simHoldingDays: 5,
-  simTargetProfit: 5.0,
+  simTargetProfit: 5,
   simSignalWindow: 3,   // EOM/RSI 시그널 유효 윈도우 (일)
+  simBuyTiming: 'today',
+  simSellTiming: 'today',
+  bbBase: 'lower',
+  bbBuyPriceType: 'close',
+  bbSellPriceType: 'close',
+  bbCrossDown: true,
+  bbCrossUp: false,
+  // 매도 상세 제어
+  holdDaysActive: false,
+  targetProfitActive: false,
+  bbTrackingSellActive: true,
+  // 🚀 매도(탈출) 전용 상태 추가
+  sellRSIActive: false,
+  sellSTOCHActive: false,
+  sellEOMActive: false,
   simResults: {}, // code -> { success, total, winRate, pnl, trades }
   simStarted: false, // 시뮬레이션 시작 여부
   todayMode: false,  // 🚀 '오늘' 탐색 모드 여부
   simDirty: false,   // 파라미터 변경 후 재실행 필요 여부
   selectedTradeIndex: -1, // 선택된 시뮬레이션 거래 인덱스
   historyActive: false,    // 이력 영역 활성화 여부 (키보드 네비게이션용)
+  selectedCodes: [],    // 🚀 신규: Ctrl+클릭으로 선택/박제된 종목 코드 (순서 유지)
+  bbReq: 'req',
+  rsiReq: 'req',
+  stochReq: 'req',
+  eomReq: 'req',
 };
 
 /* ══════════════════════════════════════════════
@@ -62,11 +96,27 @@ async function _saveFundamentalToServer(code, data) {
    유틸리티
 ══════════════════════════════════════════════ */
 const fmt = n => Number(n).toLocaleString('ko-KR');
-const fmtPct = n => (n >= 0 ? '+' : '') + Number(n).toFixed(2) + '%';
+const fmtPct = n => (n >= 0 ? '+' : '') + Math.trunc(n) + '%';
 
 function fmtPrice(price, isUS) {
   if (isUS) return '$' + Number(price).toFixed(2);
   return fmt(Math.round(price)) + '원';
+}
+
+/** 🚀 지표 파라미터 추출 헬퍼 */
+function _getIndicatorOpts() {
+  return {
+    rsiPeriod: SimState.rsiPeriod || 14,
+    rsiOB: SimState.rsiOB || 70,
+    rsiOS: SimState.rsiOS || 30,
+    eomPeriod: SimState.eomPeriod || 14,
+    eomSignal: SimState.eomSignal || 14,
+    k1: SimState.stochK || 14,
+    k2: SimState.stochSK || 3,
+    d: SimState.stochSD || 3,
+    ob: SimState.stochOB || 80,
+    os: SimState.stochOS || 20
+  };
 }
 
 /* ── 펀더멘털 값 포매터 ── */
@@ -191,20 +241,29 @@ function showToast(msg, type = 'info') {
 /* ══════════════════════════════════════════════
    시뮬 파라미터 변경 → 재실행 유도 (Dirty 플래그)
 ══════════════════════════════════════════════ */
-function _markSimDirty() {
+function _markSimDirty(keepOptResults = false) {
   if (!SimState.simStarted) return;
 
+  // 사용자가 수동으로 체크박스나 설정을 바꾼 경우: 최적화 보호막(메모장) 강제 해제
+  if (!keepOptResults) {
+    SimState.optResults = {};
+  }
+
   // 🚀 핵심: 설정이 바뀌면 이미 로드된 데이터를 기반으로 즉시 시뮬레이션 재계산
-  // 이렇게 해야 차트의 마커와 리스트의 숫자가 항상 현재 설정과 일치하게 유지됨 (Orphan 마커 방지)
   Object.keys(SimState.watchData).forEach(code => {
-    SimState.simResults[code] = _calculateTotalSim(SimState.watchData[code]);
+    // 🚀 1등 최적조건을 획득한 종목은, 현재 UI(타 종목 스위치) 상태와 무관하게 1등 성적표를 리스트에 영구 고정
+    if (SimState.optResults && SimState.optResults[code]) {
+      // 이 종목은 현재 UI 설정 대신, 자신이 찾아낸 1등 전략(simResults에 보관중)을 계속 보여줌
+    } else {
+      SimState.simResults[code] = _calculateTotalSim(SimState.watchData[code]);
+    }
   });
 
   renderList();
 
   // 현재 선택된 종목이 있다면 미리보기 차트도 즉시 갱신
-  if (SimState.selectedStockCode) {
-    showStockPreview(SimState.selectedStockCode);
+  if (SimState.previewCode) {
+    showStockPreview(SimState.previewCode);
   }
 
   if (SimState.simDirty) return;
@@ -228,6 +287,262 @@ function _clearSimDirty() {
 }
 
 /* ══════════════════════════════════════════════
+   최적조건(Optimization) 비동기 탐색 모듈
+══════════════════════════════════════════════ */
+function* generateCombos() {
+  const signalWindows = [1, 2, 3];
+  const buyTimes = ['today', 'next'];
+  const sellTimes = ['today', 'next'];
+  const bbBases = ['lower', 'middle'];
+  const bbDirs = [{down:true, up:false}, {down:false, up:true}, {down:true, up:true}];
+  const states = ['off', 'req', 'opt'];
+  const bools = [true, false];
+  
+  for (let sw of signalWindows) {
+    for (let bt of buyTimes) {
+      for (let st of sellTimes) {
+        for (let bbS of states) {
+          const bases = bbS === 'off' ? [bbBases[0]] : bbBases;
+          const dirs = bbS === 'off' ? [bbDirs[0]] : bbDirs;
+          for (let base of bases) {
+            for (let dir of dirs) {
+              for (let rsiS of states) {
+                for (let stochS of states) {
+                  for (let eomS of states) {
+                    if (bbS === 'off' && rsiS === 'off' && stochS === 'off' && eomS === 'off') continue;
+                    for (let sBB of bools) {
+                      for (let sRSI of bools) {
+                        for (let sST of bools) {
+                          for (let sEOM of bools) {
+                            yield {
+                              simSignalWindow: sw,
+                              simBuyTiming: bt, simSellTiming: st,
+                              bbFilterActive: bbS !== 'off', bbReq: bbS === 'off' ? 'req' : bbS,
+                              bbBase: base, bbCrossDown: dir.down, bbCrossUp: dir.up,
+                              rsiFilterActive: rsiS !== 'off', rsiReq: rsiS === 'off' ? 'req' : rsiS,
+                              stochFilterActive: stochS !== 'off', stochReq: stochS === 'off' ? 'req' : stochS,
+                              eomFilterActive: eomS !== 'off', eomReq: eomS === 'off' ? 'req' : eomS,
+                              bbTrackingSellActive: sBB, sellRSIActive: sRSI, sellSTOCHActive: sST, sellEOMActive: sEOM
+                            };
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+async function runOptimization(codes) {
+  const btn = document.getElementById('btnOptimize');
+  if (!btn || codes.length === 0) return;
+  
+  btn.disabled = true;
+  document.getElementById('btnRunSim').disabled = true;
+  document.getElementById('btnTodayScan').disabled = true;
+  
+  const originalState = { ...SimState };
+  
+  // 강제 고정값 (UI의 영향을 받지 않도록 끄기 및 초기화)
+  SimState.holdDaysActive = false;
+  SimState.targetProfitActive = false;
+  SimState.bbFilterThreshold = 0;
+  
+  SimState.optResults = {}; // 🚀 신규 최적화 런 시 기존 메모장 백지로 리셋
+
+  const bests = {};
+  codes.forEach(code => { bests[code] = { pnl: -Infinity, combo: null, res: null }; });
+
+  const yieldToMain = () => new Promise(r => {
+    if (typeof MessageChannel !== 'undefined') {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = () => r();
+      ch.port2.postMessage(null);
+    } else setTimeout(r, 0);
+  });
+
+  const combos = generateCombos();
+  const totalApprox = 67392; 
+  let count = 0;
+  let isRunning = true;
+  
+  while (isRunning) {
+    const chunkStart = performance.now();
+    // 🚀 브라우저 탭이 백그라운드로 가면 1초 강제 딜레이(Throttling)를 맞기 때문에, 
+    // 연산 청크의 묶음을 15ms(60프레임)에서 450ms 단위로 30배 대폭 키워서 지연을 회피함.
+    const limit = document.hidden ? 450 : 15;
+    
+    while (performance.now() - chunkStart < limit) { 
+      const res = combos.next();
+      if (res.done) { isRunning = false; break; }
+      
+      const combo = res.value;
+      Object.assign(SimState, combo);
+      
+      for (const code of codes) {
+        const data = SimState.watchData[code];
+        if (!data || !data.candlesWithBB || data.candlesWithBB.length === 0) continue;
+        const r = _calculateTotalSim(data);
+        if (!r || r.total === 0) continue;
+        
+        if (r.pnl > bests[code].pnl) {
+          bests[code].pnl = r.pnl;
+          bests[code].combo = { ...combo };
+          bests[code].res = r;
+        }
+      }
+      count++;
+    }
+    
+    const pct = Math.min(100, Math.floor((count / totalApprox) * 100));
+    btn.textContent = `${pct}%`;
+    btn.style.background = `linear-gradient(90deg, #9333ea ${pct}%, #7e22ce ${pct}%)`;
+    
+    await yieldToMain();
+  }
+  
+  let foundAny = false;
+  const newOptResults = {};
+  const newSimResults = {};
+
+  codes.forEach(code => {
+    if (bests[code].combo) {
+      foundAny = true;
+      newOptResults[code] = bests[code].combo;
+      newSimResults[code] = bests[code].res;
+    }
+  });
+
+  Object.assign(SimState, originalState); // UI 원상복구
+  
+  // 🚀 버그 수정: 원상복구된 SimState 위에, 방금 새로 찾아낸 1등 메모장과 점수판을 다시 단단히 부착!
+  Object.assign(SimState.optResults, newOptResults);
+  Object.assign(SimState.simResults, newSimResults);
+  
+  if (foundAny) {
+    const firstCode = codes.find(c => bests[c].combo);
+    
+    // 첫 번째 성공 종목의 최적값으로 UI 세팅 변신
+    Object.assign(SimState, bests[firstCode].combo);
+    SimState.holdDaysActive = false;
+    SimState.targetProfitActive = false;
+    SimState.bbFilterThreshold = 0;
+    
+    syncUIToState(bests[firstCode].combo);
+    _markSimDirty(true); // 변경된 설정으로 선행 렌더링 (보호막 유지)
+    showStockPreview(firstCode); 
+    
+    showToast(`개별 종목별 맞춤 최적조건 탐색 완료! 리스트에서 종목을 클릭해 보세요.`, 'success');
+  } else {
+    showToast('탐색 범위를 만족하는 유효한 전략이 없습니다.', 'error');
+  }
+  
+  btn.textContent = '최적조건';
+  btn.style.background = '';
+  btn.disabled = false;
+  _updateRunButtonsState();
+}
+
+function syncUIToState(combo) {
+  const byId = (id, val) => { const e = document.getElementById(id); if (e) e.value = val; };
+  const checkById = (id, val) => { const e = document.getElementById(id); if (e) e.checked = val; };
+  
+  byId('simSignalWindow', combo.simSignalWindow);
+  
+  document.getElementsByName('simBuyTiming').forEach(r => r.checked = (r.value === combo.simBuyTiming));
+  document.getElementsByName('simSellTiming').forEach(r => r.checked = (r.value === combo.simSellTiming));
+  document.getElementsByName('bbBase').forEach(r => r.checked = (r.value === combo.bbBase));
+  
+  checkById('checkBBFilter', combo.bbFilterActive);
+  document.getElementsByName('bbReq').forEach(r => r.checked = (r.value === combo.bbReq));
+  checkById('checkBBCrossDown', combo.bbCrossDown);
+  checkById('checkBBCrossUp', combo.bbCrossUp);
+  
+  checkById('checkRsiFilter', combo.rsiFilterActive);
+  document.getElementsByName('rsiReq').forEach(r => r.checked = (r.value === combo.rsiReq));
+  
+  checkById('checkStochFilter', combo.stochFilterActive);
+  document.getElementsByName('stochReq').forEach(r => r.checked = (r.value === combo.stochReq));
+  
+  checkById('checkEomFilter', combo.eomFilterActive);
+  document.getElementsByName('eomReq').forEach(r => r.checked = (r.value === combo.eomReq));
+  
+  checkById('checkSellBB', combo.bbTrackingSellActive);
+  checkById('checkSellRSI', combo.sellRSIActive);
+  checkById('checkSellSTOCH', combo.sellSTOCHActive);
+  checkById('checkSellEOM', combo.sellEOMActive);
+  
+  checkById('checkHoldDays', false);
+  checkById('checkTargetProfit', false);
+  byId('inputBBThreshold', 0);
+}
+
+/* ══════════════════════════════════════════════
+   기본값 초기화 모듈
+══════════════════════════════════════════════ */
+function resetFiltersToDefault() {
+  SimState.optResults = {}; // 🚀 초기화 시 개별 최적화 메모리도 싹 날림
+
+  const defaultCombo = {
+    simSignalWindow: 1,
+    simBuyTiming: 'today',
+    simSellTiming: 'today',
+    bbBuyPriceType: 'close',
+    bbSellPriceType: 'close',
+    bbFilterActive: true,
+    bbReq: 'req',
+    bbBase: 'lower',
+    bbCrossDown: true,
+    bbCrossUp: false,
+    rsiFilterActive: false,
+    rsiReq: 'req',
+    stochFilterActive: false,
+    stochReq: 'req',
+    eomFilterActive: false,
+    eomReq: 'req',
+    bbTrackingSellActive: true,
+    sellRSIActive: false,
+    sellSTOCHActive: false,
+    sellEOMActive: false
+  };
+
+  Object.assign(SimState, defaultCombo);
+  SimState.holdDaysActive = false;
+  SimState.targetProfitActive = false;
+  SimState.bbFilterThreshold = 0;
+  
+  // 기간(6M) UI 복구 추가
+  SimState.simPeriodMonths = 6;
+  SimState.candleCount = Math.ceil(SimState.simPeriodMonths * 21) + 60;
+
+  syncUIToState(defaultCombo);
+
+  document.getElementsByName('bbBuyPriceType').forEach(r => r.checked = (r.value === defaultCombo.bbBuyPriceType));
+  document.getElementsByName('bbSellPriceType').forEach(r => r.checked = (r.value === defaultCombo.bbSellPriceType));
+  
+  const byId = (id, val) => { const e = document.getElementById(id); if (e) e.value = val; };
+  byId('simHoldingDays', 5);
+  byId('simTargetProfit', 5);
+  byId('simPeriodMonths', 6);
+
+  _updateRunButtonsState();
+  
+  SimState.simDirty = true;
+  const btn = document.getElementById('btnRunSim');
+  if (btn) {
+    btn.style.background = '#7c2d12';
+    btn.style.boxShadow = 'none';
+    btn.innerHTML = '다시 실행 필요';
+  }
+}
+
+/* ══════════════════════════════════════════════
    헤더 컨트롤 초기화
 ══════════════════════════════════════════════ */
 function initHeaderControls() {
@@ -235,16 +550,33 @@ function initHeaderControls() {
   SimState.listInterval = '1d';
   SimState.candleCount = 252; // 약 1년치
 
+  // 조건 초기화 버튼 바인딩
+  const btnReset = document.getElementById('btnResetFilters');
+  if (btnReset) btnReset.addEventListener('click', () => {
+    resetFiltersToDefault();
+    showToast('조건 설정이 초기화되었습니다.', 'success');
+  });
+
+  // 최적조건 탐색 버튼 바인딩
+  const btnOpt = document.getElementById('btnOptimize');
+  if (btnOpt) btnOpt.addEventListener('click', () => {
+    if (SimState.selectedCodes.length > 0) {
+      runOptimization(SimState.selectedCodes);
+    }
+  });
+
   // 시뮬레이션 버튼 바인딩
   const btnRun = document.getElementById('btnRunSim');
   if (btnRun) btnRun.addEventListener('click', () => {
     SimState.todayMode = false;
+    SimState.optResults = {}; // 🚀 수동 실행 시 기존 최적화 메모리 리셋
     runSimulation();
   });
 
   // 오늘 탐색 버튼 바인딩
   const btnToday = document.getElementById('btnTodayScan');
   if (btnToday) btnToday.addEventListener('click', () => {
+    SimState.optResults = {}; // 🚀 수동 실행 시 기존 최적화 메모리 리셋
     runTodayScan();
   });
 
@@ -281,7 +613,7 @@ function initHeaderControls() {
       }
     });
     const v = parseFloat(inpProfit.value);
-    SimState.simTargetProfit = isNaN(v) ? 5.0 : v;
+    SimState.simTargetProfit = isNaN(v) ? 5 : v;
   }
 
   // 시그널 유효 윈도우
@@ -296,6 +628,50 @@ function initHeaderControls() {
     });
     const v = parseInt(inpWin.value);
     SimState.simSignalWindow = isNaN(v) ? 1 : v;
+  }
+
+  // 매수 시점 (당일/익일 라디오)
+  const radiosBuyTiming = document.getElementsByName('simBuyTiming');
+  radiosBuyTiming.forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) {
+        SimState.simBuyTiming = r.value;
+        _markSimDirty();
+      }
+    });
+    if (r.checked) SimState.simBuyTiming = r.value;
+  });
+
+  // 매도 시점 (당일/익일 라디오)
+  const radiosSellTiming = document.getElementsByName('simSellTiming');
+  radiosSellTiming.forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) {
+        SimState.simSellTiming = r.value;
+        _markSimDirty();
+      }
+    });
+    if (r.checked) SimState.simSellTiming = r.value;
+  });
+
+  // 보유일 사용 여부
+  const checkHoldDays = document.getElementById('checkHoldDays');
+  if (checkHoldDays) {
+    checkHoldDays.addEventListener('change', () => {
+      SimState.holdDaysActive = checkHoldDays.checked;
+      _markSimDirty();
+    });
+    SimState.holdDaysActive = checkHoldDays.checked;
+  }
+
+  // 익절 사용 여부
+  const checkTargetProfit = document.getElementById('checkTargetProfit');
+  if (checkTargetProfit) {
+    checkTargetProfit.addEventListener('change', () => {
+      SimState.targetProfitActive = checkTargetProfit.checked;
+      _markSimDirty();
+    });
+    SimState.targetProfitActive = checkTargetProfit.checked;
   }
 }
 
@@ -328,15 +704,63 @@ function getSelectedStocks() {
   return targetTab ? (targetTab.stocks || []) : [];
 }
 
+/**
+ * 🚀 필터(BB, EOM, RSI)가 하나도 선택되지 않으면 분석 버튼 비활성화
+ */
+function _updateRunButtonsState() {
+  const btnRun = document.getElementById('btnRunSim');
+  const btnToday = document.getElementById('btnTodayScan');
+  const btnOpt = document.getElementById('btnOptimize');
+  const hasFilter = SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive || SimState.stochFilterActive;
+  
+  if (btnOpt) {
+    const canOpt = SimState.selectedCodes && SimState.selectedCodes.length > 0;
+    btnOpt.disabled = !canOpt;
+    btnOpt.style.opacity = canOpt ? '1' : '0.5';
+    btnOpt.style.cursor = canOpt ? 'pointer' : 'not-allowed';
+  }
+
+  if (btnRun) {
+    btnRun.disabled = !hasFilter;
+    if (!hasFilter) {
+      btnRun.style.opacity = '0.5';
+      btnRun.style.cursor = 'not-allowed';
+    } else {
+      btnRun.style.opacity = '1';
+      btnRun.style.cursor = 'pointer';
+    }
+  }
+  if (btnToday) {
+    btnToday.disabled = !hasFilter;
+    if (!hasFilter) {
+      btnToday.style.opacity = '0.5';
+      btnToday.style.cursor = 'not-allowed';
+    } else {
+      btnToday.style.opacity = '1';
+      btnToday.style.cursor = 'pointer';
+    }
+  }
+}
+
 function initFilters() {
   const checkBB = document.getElementById('checkBBFilter');
   const inputBB = document.getElementById('inputBBThreshold');
   const checkEom = document.getElementById('checkEomFilter');
   const checkRsi = document.getElementById('checkRsiFilter');
 
+  const chkSellBB = document.getElementById('checkSellBB');
+  const chkSellEom = document.getElementById('checkSellEOM');
+  const chkSellRsi = document.getElementById('checkSellRSI');
+  const chkSellStoch = document.getElementById('checkSellSTOCH');
+
   if (checkBB) {
     checkBB.addEventListener('change', () => {
       SimState.bbFilterActive = checkBB.checked;
+      if (chkSellBB) {
+        chkSellBB.checked = checkBB.checked;
+        SimState.bbTrackingSellActive = checkBB.checked;
+      }
+      _updateRunButtonsState();
       _markSimDirty();
       if (SimState.simStarted) renderList();
     });
@@ -357,19 +781,227 @@ function initFilters() {
   if (checkEom) {
     checkEom.addEventListener('change', () => {
       SimState.eomFilterActive = checkEom.checked;
+      if (chkSellEom) {
+        chkSellEom.checked = checkEom.checked;
+        SimState.sellEOMActive = checkEom.checked;
+      }
+      _updateRunButtonsState();
       _markSimDirty();
       if (SimState.simStarted) renderList();
     });
     SimState.eomFilterActive = checkEom.checked;
   }
+
+  const inputEomPeriod = document.getElementById('inputEomPeriod');
+  if (inputEomPeriod) {
+    inputEomPeriod.addEventListener('input', () => {
+      SimState.eomPeriod = parseInt(inputEomPeriod.value) || 14;
+      _markSimDirty();
+    });
+    SimState.eomPeriod = parseInt(inputEomPeriod.value) || 14;
+  }
+
+  const inputEomSignal = document.getElementById('inputEomSignal');
+  if (inputEomSignal) {
+    inputEomSignal.addEventListener('input', () => {
+      SimState.eomSignal = parseInt(inputEomSignal.value) || 14;
+      _markSimDirty();
+    });
+    SimState.eomSignal = parseInt(inputEomSignal.value) || 14;
+  }
   if (checkRsi) {
     checkRsi.addEventListener('change', () => {
       SimState.rsiFilterActive = checkRsi.checked;
+      if (chkSellRsi) {
+        chkSellRsi.checked = checkRsi.checked;
+        SimState.sellRSIActive = checkRsi.checked;
+      }
+      _updateRunButtonsState();
       _markSimDirty();
       if (SimState.simStarted) renderList();
     });
     SimState.rsiFilterActive = checkRsi.checked;
   }
+  
+  const inputRsiP = document.getElementById('inputRsiPeriod');
+  if (inputRsiP) {
+    inputRsiP.addEventListener('input', () => {
+      SimState.rsiPeriod = parseInt(inputRsiP.value) || 14;
+      _markSimDirty();
+    });
+    SimState.rsiPeriod = parseInt(inputRsiP.value) || 14;
+  }
+
+  const inputRsiOB = document.getElementById('inputRsiOB');
+  if (inputRsiOB) {
+    inputRsiOB.addEventListener('input', () => {
+      SimState.rsiOB = parseInt(inputRsiOB.value) || 70;
+      _markSimDirty();
+    });
+    SimState.rsiOB = parseInt(inputRsiOB.value) || 70;
+  }
+
+  const inputRsiOS = document.getElementById('inputRsiOS');
+  if (inputRsiOS) {
+    inputRsiOS.addEventListener('input', () => {
+      SimState.rsiOS = parseInt(inputRsiOS.value) || 30;
+      _markSimDirty();
+    });
+    SimState.rsiOS = parseInt(inputRsiOS.value) || 30;
+  }
+
+  // Stochastic 필터 및 파라미터
+  const checkStoch = document.getElementById('checkStochFilter');
+  if (checkStoch) {
+    checkStoch.addEventListener('change', () => {
+      SimState.stochFilterActive = checkStoch.checked;
+      if (chkSellStoch) {
+        chkSellStoch.checked = checkStoch.checked;
+        SimState.sellSTOCHActive = checkStoch.checked;
+      }
+      _updateRunButtonsState();
+      _markSimDirty();
+      if (SimState.simStarted) renderList();
+    });
+    SimState.stochFilterActive = checkStoch.checked;
+  }
+
+  const inputsStoch = ['inputStochK', 'inputStochSK', 'inputStochSD', 'inputStochOB', 'inputStochOS'];
+  const stochPropMap = {
+    inputStochK: 'stochK',
+    inputStochSK: 'stochSK',
+    inputStochSD: 'stochSD',
+    inputStochOB: 'stochOB',
+    inputStochOS: 'stochOS'
+  };
+
+  inputsStoch.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', () => {
+        SimState[stochPropMap[id]] = parseInt(el.value) || 0;
+        _markSimDirty();
+      });
+      SimState[stochPropMap[id]] = parseInt(el.value) || 0;
+    }
+  });
+
+  const radiosBBBase = document.getElementsByName('bbBase');
+  radiosBBBase.forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) {
+        SimState.bbBase = r.value;
+        _markSimDirty();
+      }
+    });
+    if (r.checked) SimState.bbBase = r.value;
+  });
+
+  // BB 매수 가격 기준
+  const radiosBBBuyPrice = document.getElementsByName('bbBuyPriceType');
+  radiosBBBuyPrice.forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) {
+        SimState.bbBuyPriceType = r.value;
+        _markSimDirty();
+      }
+    });
+    if (r.checked) SimState.bbBuyPriceType = r.value;
+  });
+
+  // BB 매도 가격 기준
+  const radiosBBSellPrice = document.getElementsByName('bbSellPriceType');
+  radiosBBSellPrice.forEach(r => {
+    r.addEventListener('change', () => {
+      if (r.checked) {
+        SimState.bbSellPriceType = r.value;
+        _markSimDirty();
+      }
+    });
+    if (r.checked) SimState.bbSellPriceType = r.value;
+  });
+
+  // BB 방향 (이탈/돌파)
+  const checkBBCrossDown = document.getElementById('checkBBCrossDown');
+  if (checkBBCrossDown) {
+    checkBBCrossDown.addEventListener('change', () => {
+      SimState.bbCrossDown = checkBBCrossDown.checked;
+      _markSimDirty();
+    });
+    SimState.bbCrossDown = checkBBCrossDown.checked;
+  }
+  const checkBBCrossUp = document.getElementById('checkBBCrossUp');
+  if (checkBBCrossUp) {
+    checkBBCrossUp.addEventListener('change', () => {
+      SimState.bbCrossUp = checkBBCrossUp.checked;
+      _markSimDirty();
+    });
+    SimState.bbCrossUp = checkBBCrossUp.checked;
+  }
+
+  // 매도(탈출) 전용 체크박스 이벤트 리스너
+  if (chkSellBB) {
+    chkSellBB.addEventListener('change', () => {
+      SimState.bbTrackingSellActive = chkSellBB.checked;
+      _markSimDirty();
+    });
+    SimState.bbTrackingSellActive = chkSellBB.checked;
+  }
+  if (chkSellRsi) {
+    chkSellRsi.addEventListener('change', () => {
+      SimState.sellRSIActive = chkSellRsi.checked;
+      _markSimDirty();
+    });
+    SimState.sellRSIActive = chkSellRsi.checked;
+  }
+  if (chkSellStoch) {
+    chkSellStoch.addEventListener('change', () => {
+      SimState.sellSTOCHActive = chkSellStoch.checked;
+      _markSimDirty();
+    });
+    SimState.sellSTOCHActive = chkSellStoch.checked;
+  }
+  if (chkSellEom) {
+    chkSellEom.addEventListener('change', () => {
+      SimState.sellEOMActive = chkSellEom.checked;
+      _markSimDirty();
+    });
+    SimState.sellEOMActive = chkSellEom.checked;
+  }
+
+  // 필수/선택 (req/opt) 라디오 이벤트 연동
+  const reqMap = {
+    bbReq: 'checkBBFilter',
+    rsiReq: 'checkRsiFilter',
+    stochReq: 'checkStochFilter',
+    eomReq: 'checkEomFilter'
+  };
+
+  Object.keys(reqMap).forEach(name => {
+    const radios = document.getElementsByName(name);
+    const mainCheckId = reqMap[name];
+    radios.forEach(r => {
+      r.addEventListener('change', () => {
+        if (r.checked) {
+          SimState[name] = r.value;
+          
+          const mainCb = document.getElementById(mainCheckId);
+          if (mainCb && !mainCb.checked) {
+            mainCb.checked = true;
+            // 🚀 체크박스 강제 발동: 자동으로 SimState 갱신 및 _markSimDirty()가 호출됨
+            mainCb.dispatchEvent(new Event('change'));
+          } else {
+            // 이미 켜져 있으면 토글 로직에 대한 dirty 갱신만 수행
+            _markSimDirty();
+          }
+        }
+      });
+      if (r.checked) SimState[name] = r.value;
+    });
+  });
+
+  // 초기 상태 반영
+  _updateRunButtonsState();
 }
 
 /* ══════════════════════════════════════════════
@@ -414,7 +1046,7 @@ async function doSearch(input, dbOnly = false) {
   SimState.previewCode = input.toUpperCase();
   try {
     const raw = await API.fetchStock(input, SimState.candleCount, SimState.previewInterval);
-    const analyzed = Indicators.analyzeAll(raw);
+    const analyzed = Indicators.analyzeAll(raw, 20, _getIndicatorOpts());
     SimState.previewCode = analyzed.code;
     SimState.previewData = analyzed;
     if (Object.prototype.hasOwnProperty.call(SimState.watchData, analyzed.code)) {
@@ -652,7 +1284,7 @@ function renderPreview(data) {
   setTimeout(() => {
     Charts.renderMini('previewChart', data, simRes, SimState.simPeriodMonths, SimState.selectedTradeIndex);
     Charts.renderEOM('eomChart', data, simRes, SimState.simPeriodMonths);
-    Charts.renderRSIStoch('rsiStochChart', data, simRes, SimState.simPeriodMonths);
+    Charts.renderRSIStoch('rsiStochChart', data, simRes, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS);
   }, 50);
 }
 
@@ -682,7 +1314,7 @@ async function _bgRefreshStock(input, registeredCode) {
   try {
     // listInterval(previewInterval과 동기화) 기준으로 fetch
     const raw = await API.fetchStock(input, SimState.candleCount, SimState.listInterval);
-    const analyzed = Indicators.analyzeAll(raw);
+    const analyzed = Indicators.analyzeAll(raw, 20, _getIndicatorOpts());
     const code = registeredCode || analyzed.code;
     // watchData 갱신 (등록된 종목이면)
     if (Object.prototype.hasOwnProperty.call(SimState.watchData, code)) {
@@ -760,7 +1392,7 @@ async function _intervalSwitch(interval) {
 
     batchResults.forEach((res, i) => {
       if (res) {
-        const analyzed = Indicators.analyzeAll(res);
+        const analyzed = Indicators.analyzeAll(res, 20, _getIndicatorOpts());
         const code = activeStocks[i].code;
         SimState.watchData[code] = analyzed;
         if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
@@ -792,7 +1424,7 @@ async function _intervalSwitch(interval) {
 
         chunkResults.forEach((res, j) => {
           if (res) {
-            const analyzed = Indicators.analyzeAll(res);
+            const analyzed = Indicators.analyzeAll(res, 20, _getIndicatorOpts());
             const code = chunk[j].code;
             SimState.watchData[code] = analyzed;
             if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
@@ -800,7 +1432,7 @@ async function _intervalSwitch(interval) {
         });
 
         // 배치 처리 완료 후 화면 갱신 (프로그레시브 로딩)
-        if (SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive) {
+        if (SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive || SimState.stochFilterActive) {
           renderList();
         }
 
@@ -808,7 +1440,7 @@ async function _intervalSwitch(interval) {
         await new Promise(r => setTimeout(r, 50));
       }
       _syncFundamentalsFromWatchData();
-      if (SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive) {
+      if (SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive || SimState.stochFilterActive) {
         renderList();
       }
       console.log(`[Interval] 모든 종목 전환 로드 완료`);
@@ -834,7 +1466,7 @@ async function doRefreshAll(btn) {
     await API.fetchBatch(stocks, SimState.candleCount, SimState.listInterval, (code, res, err) => {
       done++;
       if (res) {
-        const analyzed = Indicators.analyzeAll(res);
+        const analyzed = Indicators.analyzeAll(res, 20, _getIndicatorOpts());
         SimState.watchData[code] = analyzed;
         _refreshListItem(code);
         if (analyzed.name) _fixStockNameIfNeeded(code, analyzed.name);
@@ -864,6 +1496,12 @@ async function runSimulation() {
     return;
   }
 
+  // BB 방향(이탈/돌파) 모두 미선택 시 경고
+  if (SimState.bbFilterActive && !SimState.bbCrossDown && !SimState.bbCrossUp) {
+    showToast('BB 필터 사용 시 이탈 또는 돌파 방향을 하나 이상 선택하세요.', 'warn');
+    return;
+  }
+
   const btn = document.getElementById('btnRunSim');
   btn.disabled = true;
   // 분석 중 표시 (dirty 스타일 초기화)
@@ -884,7 +1522,7 @@ async function runSimulation() {
       await API.fetchBatch(chunk, SimState.candleCount, SimState.listInterval, (code, res, err) => {
         done++;
         if (res) {
-          const analyzed = Indicators.analyzeAll(res);
+          const analyzed = Indicators.analyzeAll(res, 20, _getIndicatorOpts());
           SimState.watchData[code] = analyzed;
           SimState.simResults[code] = _calculateTotalSim(analyzed);
         }
@@ -917,11 +1555,19 @@ async function runSimulation() {
       btn.style.boxShadow = '';
       btn.innerHTML = '시작';
     }
+    _updateRunButtonsState(); // 필터 유무에 따른 추가 검증
   }
 }
 
 function _calculateTotalSim(data) {
   if (!data || !data.candlesWithBB) return null;
+
+  // 🚀 핵심 수정 1: 지표가 하나도 선택되지 않았으면 시뮬레이션 하지 않음
+  const anyFilter = SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive || SimState.stochFilterActive;
+  if (!anyFilter) {
+    return { success: 0, total: 0, winRate: 0, pnl: 0, buyAndHoldPnl: 0, diffPnl: 0, pnlAvg: 0, trades: [] };
+  }
+
   const candles = data.candlesWithBB;
   const totalDays = candles.length;
 
@@ -945,6 +1591,8 @@ function _calculateTotalSim(data) {
   let totalSignals = 0;
   let successCount = 0;
   let cumulativePnl = 0; 
+  let compoundMulti = 1.0; 
+  let firstBuyPrice = null;
   const trades = [];
   const win = SimState.simSignalWindow; 
 
@@ -956,16 +1604,51 @@ function _calculateTotalSim(data) {
     const c = candles[i];
     if (!c.bbUpper || !c.bbLower) continue;
 
+    const isBuyToday = SimState.simBuyTiming === 'today';
+    const isSellToday = SimState.simSellTiming === 'today';
+
     // 1. 오늘의 시그널 조건 체크 (BB + EOM + RSI 교집합)
-    let bbOk = true;
+    let bbOk = !SimState.bbFilterActive;
     if (SimState.bbFilterActive) {
-      // 🚀 사용자의 '터치' 직관에 맞춰 Low(저가)를 기준으로 밴드 하단 이탈 체크
-      // 오차를 방지하기 위해 c.bbLower가 유효한지 먼저 확인
-      if (c.bbLower === null) {
-        bbOk = false;
-      } else {
-        const dropPct = ((c.low - c.bbLower) / c.low) * 100;
-        bbOk = dropPct <= (SimState.bbFilterThreshold + 0.001); // 부동소수점 오차 방어
+      for (let k = 0; k < win; k++) {
+        const curIdx = i - k;
+        if (curIdx < 0) break;
+        
+        const curC = candles[curIdx];
+        const baseVal = SimState.bbBase === 'middle' ? curC.bbMiddle : curC.bbLower;
+        if (baseVal === null) continue;
+
+        const threshold = SimState.bbFilterThreshold || 0;
+        // 밴드 선 기준값 (임계값 반영)
+        const triggerLine = baseVal * (1 + threshold / 100);
+        
+        const prevIdx = curIdx - 1;
+        if (prevIdx < 0) continue;
+        
+        const prev = candles[prevIdx];
+        const prevBase = SimState.bbBase === 'middle' ? prev.bbMiddle : prev.bbLower;
+        if (prevBase === null) continue;
+        
+        const prevTriggerLine = prevBase * (1 + threshold / 100);
+        
+        // 🚀 매수 가격 기준(buyPriceType) 적용
+        const pPrice = prev[SimState.bbBuyPriceType] || prev.close;
+        const cPrice = curC[SimState.bbBuyPriceType] || curC.close;
+
+        let crossOk = false;
+        // 이탈 (Cross Down)
+        if (SimState.bbCrossDown) {
+          if (pPrice > prevTriggerLine && cPrice <= triggerLine) crossOk = true;
+        }
+        // 돌파 (Cross Up)
+        if (SimState.bbCrossUp) {
+          if (pPrice < prevTriggerLine && cPrice >= triggerLine) crossOk = true;
+        }
+
+        if (crossOk) {
+          bbOk = true;
+          break;
+        }
       }
     }
 
@@ -987,7 +1670,7 @@ function _calculateTotalSim(data) {
     if (SimState.rsiFilterActive) {
       for (let k = 0; k < win; k++) {
         if (i - k < 0) break;
-        if (candles[i - k].rsiStSignal === 'BUY') { 
+        if (candles[i - k].rsiSignal === 'BUY') { 
           rsiOk = true; 
           rsiSigIdx = i - k;
           break; 
@@ -995,18 +1678,93 @@ function _calculateTotalSim(data) {
       }
     }
 
-    // 2. 진입 결정 (오늘 확정 -> 내일 시가 매수)
-    if (bbOk && eomOk && rsiOk) {
-      // 🚀 신호 발생일(B) 추적: EOM/RSI 신호가 있으면 해당 날짜, 없으면 오늘(i)
-      let sIdx = i;
-      if (SimState.eomFilterActive && eomSigIdx !== -1) sIdx = eomSigIdx;
-      else if (SimState.rsiFilterActive && rsiSigIdx !== -1) sIdx = rsiSigIdx;
-      const sigDate = candles[sIdx].date;
+    let stochOk = !SimState.stochFilterActive;
+    let stochSigIdx = -1;
+    if (SimState.stochFilterActive) {
+      for (let k = 0; k < win; k++) {
+        if (i - k < 0) break;
+        if (candles[i - k].stochSignal === 'BUY') { 
+          stochOk = true; 
+          stochSigIdx = i - k;
+          break; 
+        }
+      }
+    }
 
-      const buyIdx = i + 1;
-      if (!candles[buyIdx]) continue;
+    // 2. 진입 결정 (오늘 확정 -> 매수 시점(simBuyTiming)에 따라 매수 처리)
+    let allReqMet = true;
+    let anyOptSelected = false;
+    let anyOptMet = false;
 
-      const buyPrice = candles[buyIdx].open;
+    if (SimState.bbFilterActive) {
+      if (SimState.bbReq === 'req') {
+        if (!bbOk) allReqMet = false;
+      } else {
+        anyOptSelected = true;
+        if (bbOk) anyOptMet = true;
+      }
+    }
+
+    if (SimState.eomFilterActive) {
+      if (SimState.eomReq === 'req') {
+        if (!eomOk) allReqMet = false;
+      } else {
+        anyOptSelected = true;
+        if (eomOk) anyOptMet = true;
+      }
+    }
+
+    if (SimState.rsiFilterActive) {
+      if (SimState.rsiReq === 'req') {
+        if (!rsiOk) allReqMet = false;
+      } else {
+        anyOptSelected = true;
+        if (rsiOk) anyOptMet = true;
+      }
+    }
+
+    if (SimState.stochFilterActive) {
+      if (SimState.stochReq === 'req') {
+        if (!stochOk) allReqMet = false;
+      } else {
+        anyOptSelected = true;
+        if (stochOk) anyOptMet = true;
+      }
+    }
+
+    const optConditionMet = anyOptSelected ? anyOptMet : true;
+
+    if (allReqMet && optConditionMet) {
+      // 🚀 핵심 수정: 다중 지표 결합 시 최종 기준일은 과거가 아닌 조건 완성 당일(i)로 기록
+      const sigDate = candles[i].date;
+
+      let buyIdx = isBuyToday ? i : i + 1;
+      
+      // 🚀 핵심 수정: 내일자 캔들이 없는 오늘자(Today) '익일 매수' 신호 누락 방지 (대기 상태로 기록)
+      if (!candles[buyIdx]) {
+        const reasons = [];
+        if (SimState.bbFilterActive) reasons.push('BB');
+        if (SimState.eomFilterActive) reasons.push('EOM');
+        if (SimState.rsiFilterActive) reasons.push('RSI');
+        if (SimState.stochFilterActive) reasons.push('ST');
+        
+        trades.push({
+          sigDate,
+          buyDate: '발생완료 (익일매수 대기)',
+          buyPrice: 0,
+          exitDate: '-',
+          exitPrice: 0,
+          exitReason: '대기중',
+          pnl: 0,
+          isOpen: true,
+          reason: (reasons.length > 0 ? reasons.join('+') : '시그널') + '(대기)'
+        });
+        totalSignals++;
+        continue;
+      }
+
+      const buyPrice = candles[buyIdx][SimState.bbBuyPriceType] || candles[buyIdx].close;
+      if (firstBuyPrice === null) firstBuyPrice = buyPrice;
       const buyDate = candles[buyIdx].date;
 
       let hitTarget = false;
@@ -1014,81 +1772,174 @@ function _calculateTotalSim(data) {
       let actualExitIdx = -1;
       let exitPrice = 0;
       let exitDate = '';
+      let exitReason = '기간만료';
 
-      // 3. 보유 기간 중 목표가 도달 여부 감시 (고회전 모델)
-      for (let j = 0; j < SimState.simHoldingDays; j++) {
+      // 추적 매도용 상태: 현재 적용 중인 마지노선 값 (null -> middle -> upper 순으로 상향)
+      let currentMajinosen = null;
+      let majinosenLevel = 0; // 0:없음, 1:중단, 2:상단
+
+      // 3. 보유 기간 중 매도 조건 감시 (종가 기준)
+      // 최대 감시 기간을 남은 데이터 전체(끝까지)로 설정 (기존 120일 제한 해제)
+      const maxWatchDays = totalDays - buyIdx; 
+      
+      for (let j = 0; j < maxWatchDays; j++) {
         const checkIdx = buyIdx + j;
-        if (!candles[checkIdx]) break;
-
-        const dayHigh = candles[checkIdx].high;
-        const profitAtHigh = ((dayHigh - buyPrice) / buyPrice) * 100;
-
-        if (profitAtHigh >= SimState.simTargetProfit) {
+        if (!candles[checkIdx]) {
+          isOpen = true;
+          actualExitIdx = totalDays - 1;
+          exitPrice = candles[actualExitIdx][SimState.bbSellPriceType] || candles[actualExitIdx].close;
+          exitDate = null;
+          exitReason = '진행중';
           hitTarget = true;
-          actualExitIdx = checkIdx;
-          exitPrice = buyPrice * (1 + SimState.simTargetProfit / 100);
-          exitDate = candles[checkIdx].date;
+          break;
+        }
+
+        const curClose = candles[checkIdx].close;
+        const curBB = {
+          upper: candles[checkIdx].bbUpper,
+          middle: candles[checkIdx].bbMiddle,
+          lower: candles[checkIdx].bbLower
+        };
+
+        // A. 추적 매도 마지노선 업데이트 (돌파 시 상향)
+        const sPrice = candles[checkIdx][SimState.bbSellPriceType] || candles[checkIdx].close;
+        const raisePrice = candles[checkIdx].close; // 마지노선 상승 판별은 종가 기준으로 고정 (민감도 유지)
+
+        if (SimState.bbTrackingSellActive && curBB.middle !== null) {
+          // 레벨 상향 판별 (한 번 올라간 레벨은 내려가지 않음)
+          if (majinosenLevel < 1 && raisePrice > curBB.middle) majinosenLevel = 1;
+          if (majinosenLevel < 2 && curBB.upper !== null && raisePrice > curBB.upper) majinosenLevel = 2;
+          
+          // 마지노선을 당일의 현재 밴드값으로 매일 추적(Trailing) 업데이트 (과거 가격 고정 오류 수정)
+          if (majinosenLevel === 1) currentMajinosen = curBB.middle;
+          else if (majinosenLevel === 2) currentMajinosen = curBB.upper;
+        }
+
+        // 매수 당일(j=0)은 매도 조건 체크 생략 (최소 1일 보유 보장)
+        if (j === 0) continue;
+
+        // B. 매도 조건 체크 (First-hit)
+
+        // 1) 추적 매도: 당일 업데이트된 마지노선 밴드 이탈 여부 실제 추적 확인
+        if (SimState.bbTrackingSellActive && currentMajinosen !== null) {
+          if (sPrice < currentMajinosen) {
+            exitReason = (majinosenLevel === 2) ? '상단이탈' : '중단이탈';
+            actualExitIdx = isSellToday ? checkIdx : checkIdx + 1;
+            hitTarget = true;
+          }
+        }
+
+        // 2) 익절: 매도기준가가 목표가 이상일 때 (Option)
+        if (!hitTarget && SimState.targetProfitActive) {
+          const targetPrice = buyPrice * (1 + SimState.simTargetProfit / 100);
+          if (sPrice >= targetPrice) {
+            exitReason = '목표익절';
+            actualExitIdx = isSellToday ? checkIdx : checkIdx + 1;
+            hitTarget = true;
+          }
+        }
+
+        // 3) EOM 매도 신호 (Technical Overlay)
+        if (!hitTarget && SimState.sellEOMActive && candles[checkIdx].eomCross === 'SELL') {
+          exitReason = 'EOM매도';
+          actualExitIdx = isSellToday ? checkIdx : checkIdx + 1;
+          hitTarget = true;
+        }
+
+        // 3-1) RSI 매도 신호
+        if (!hitTarget && SimState.sellRSIActive && candles[checkIdx].rsiSignal === 'SELL') {
+          exitReason = 'RSI매도';
+          actualExitIdx = isSellToday ? checkIdx : checkIdx + 1;
+          hitTarget = true;
+        }
+
+        // 3-2) Stochastic 매도 신호
+        if (!hitTarget && SimState.sellSTOCHActive && candles[checkIdx].stochSignal === 'SELL') {
+          exitReason = 'ST매도';
+          actualExitIdx = isSellToday ? checkIdx : checkIdx + 1;
+          hitTarget = true;
+        }
+
+        // 4) 보유기간 만료 (Option)
+        if (!hitTarget && SimState.holdDaysActive) {
+          if (j >= SimState.simHoldingDays - 1) {
+            exitReason = '기간만료';
+            actualExitIdx = isSellToday ? checkIdx : checkIdx + 1;
+            hitTarget = true;
+          }
+        }
+
+        if (hitTarget) {
+          // 🧤 같은 날 in/out 동시 발생 방지
+          if (actualExitIdx <= buyIdx) actualExitIdx = buyIdx + 1;
+          
+          if (!candles[actualExitIdx]) {
+            isOpen = true;
+            actualExitIdx = totalDays - 1;
+            exitPrice = candles[actualExitIdx][SimState.bbSellPriceType] || candles[actualExitIdx].close;
+            exitDate = null;
+            exitReason = '진행중';
+          } else {
+            exitPrice = candles[actualExitIdx][SimState.bbSellPriceType] || candles[actualExitIdx].close;
+            exitDate = candles[actualExitIdx].date;
+          }
           break;
         }
       }
 
-      // 4. 목표 미도달 시 만기(Expire) 또는 현재 보유 중 처리
+      // 매도 조건을 충족하지 못하고 데이터 끝(현재)에 도달한 경우: 강제 청산이 아닌 '진행중' 상태로 유지
       if (!hitTarget) {
-        const lastIdx = Math.min(buyIdx + SimState.simHoldingDays - 1, totalDays - 1);
-        actualExitIdx = lastIdx;
-        exitPrice = candles[lastIdx].close;
-        exitDate = candles[lastIdx].date;
-
-        // 아직 보유 기간이 남았는데 데이터가 끝난 경우 -> '진행 중'으로 표시
-        if (lastIdx === totalDays - 1 && (totalDays - 1 - buyIdx < SimState.simHoldingDays - 1)) {
-          isOpen = true;
-          exitPrice = candles[lastIdx].close; // 현재가로 가수익률 계산
-          exitDate = null; // 아직 팔지 않음
-        }
+        actualExitIdx = totalDays - 1; // 🚀 버그 수정: 중복 매수 방지를 위해 진행중이더라도 통제 인덱스 명시
+        exitPrice = candles[actualExitIdx][SimState.bbSellPriceType] || candles[actualExitIdx].close;
+        exitDate = null;
+        exitReason = '진행중';
+        isOpen = true;
       }
 
       // 5. 수익 및 통계 기록
       let tradePnlPct = ((exitPrice - buyPrice) / buyPrice) * 100;
-      totalSignals++; // 🚀 종료 여부와 상관없이 신호 발생 횟수 카운트
+      totalSignals++;
       
-      if (hitTarget) {
-        successCount++;
-        tradePnlPct = SimState.simTargetProfit;
-      }
+      if (tradePnlPct > 0) successCount++; // 종가 기준이므로 실제 PnL이 양수면 성공
 
-      cumulativePnl += tradePnlPct; // 단리 합산
+      cumulativePnl += tradePnlPct;
+      compoundMulti *= (1 + tradePnlPct / 100);
 
-      // 진입 사유 요약
       const reasons = [];
       if (SimState.bbFilterActive) reasons.push('BB');
       if (SimState.eomFilterActive) reasons.push('EOM');
       if (SimState.rsiFilterActive) reasons.push('RSI');
+      if (SimState.stochFilterActive) reasons.push('ST');
       const reasonStr = (reasons.length > 0 ? reasons.join('+') : '시그널') + '(In)';
 
       trades.push({
-        sigDate, // 🚀 실제 신호 발생일 저장
+        sigDate,
         buyDate,
         buyPrice,
         exitDate,
         exitPrice,
+        exitReason,
         pnl: tradePnlPct,
         isOpen,
         reason: reasonStr
       });
 
-      // 🚀 고회전 핵심: 청산된 '당일' 종가부터 바로 새로운 시그널 탐색 가능
-      // 단, '진행 중(isOpen)'인 경우에는 아직 돈이 묶여 있으므로 다음날까지 탐색 차단
-      nextAllowedIdx = isOpen ? actualExitIdx + 1 : actualExitIdx;
+      nextAllowedIdx = actualExitIdx + 1;
     }
   }
 
   const pnlAvg = trades.length > 0 ? (cumulativePnl / trades.length) : 0;
+  const lastPrice = lastCandle.close;
+  const buyAndHoldPnl = firstBuyPrice !== null ? ((lastPrice - firstBuyPrice) / firstBuyPrice) * 100 : 0;
+  const compoundedPnl = (compoundMulti - 1) * 100;
 
   return {
     success: successCount,
     total: totalSignals,
     winRate: totalSignals > 0 ? (successCount / totalSignals * 100) : 0,
-    pnl: cumulativePnl,
+    pnl: compoundedPnl,
+    buyAndHoldPnl,
+    diffPnl: compoundedPnl - buyAndHoldPnl,
     pnlAvg,
     trades,
     lastSignalDate: trades.length > 0 ? trades[trades.length - 1].buyDate : null
@@ -1147,6 +1998,12 @@ async function runTodayScan() {
     return;
   }
 
+  // BB 방향(이탈/돌파) 모두 미선택 시 경고
+  if (SimState.bbFilterActive && !SimState.bbCrossDown && !SimState.bbCrossUp) {
+    showToast('BB 필터 사용 시 이탈 또는 돌파 방향을 하나 이상 선택하세요.', 'warn');
+    return;
+  }
+
   const btn = document.getElementById('btnTodayScan');
   if (btn) {
     btn.disabled = true;
@@ -1168,7 +2025,7 @@ async function runTodayScan() {
       await API.fetchBatch(chunk, SimState.candleCount, SimState.listInterval, (code, res, err) => {
         done++;
         if (res) {
-          const analyzed = Indicators.analyzeAll(res);
+          const analyzed = Indicators.analyzeAll(res, 20, _getIndicatorOpts());
           SimState.watchData[code] = analyzed;
         }
         if (btn) btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> ${done}/${stocks.length}`;
@@ -1192,57 +2049,26 @@ async function runTodayScan() {
 
     const win = SimState.simSignalWindow;
 
-    // 3. 각 종목별 당일 신호 체크
-    stocks.forEach(stock => {
-      const data = SimState.watchData[stock.code];
-      if (!data || !data.candlesWithBB) return;
+      // 3. 각 종목별 당일 신호 체크
+      stocks.forEach(stock => {
+        const data = SimState.watchData[stock.code];
+        if (!data || !data.candlesWithBB) return;
 
-      const candles = data.candlesWithBB;
-      const lastIdx = candles.findIndex(c => c.date === globalLastDate);
-      if (lastIdx === -1) return;
-
-      const c = candles[lastIdx];
-      
-      let bbOk = true;
-      if (SimState.bbFilterActive) {
-        if (c.bbLower === null) bbOk = false;
-        else {
-          const dropPct = ((c.low - c.bbLower) / c.low) * 100;
-          bbOk = dropPct <= (SimState.bbFilterThreshold + 0.001);
-        }
-      }
-
-      let eomOk = !SimState.eomFilterActive;
-      if (SimState.eomFilterActive) {
-        for (let k = 0; k < win; k++) {
-          if (lastIdx - k < 0) break;
-          if (candles[lastIdx - k].eomCross === 'BUY') { eomOk = true; break; }
-        }
-      }
-
-      let rsiOk = !SimState.rsiFilterActive;
-      if (SimState.rsiFilterActive) {
-        for (let k = 0; k < win; k++) {
-          if (lastIdx - k < 0) break;
-          if (candles[lastIdx - k].rsiStSignal === 'BUY') { rsiOk = true; break; }
-        }
-      }
-
-      if (bbOk && eomOk && rsiOk) {
-        const reasons = [];
-        if (SimState.bbFilterActive) reasons.push('BB');
-        if (SimState.eomFilterActive) reasons.push('EOM');
-        if (SimState.rsiFilterActive) reasons.push('RSI');
-        
-        // 🚀 핵심 변경: 오늘 신호가 뜬 종목에 대해 즉시 시뮬레이션 엔진 호출
+        // 🚀 핵심 수정: 중복 하드코딩된 신호 판별 부분을 제거하고 백테스터 엔진을 직접 호출해 재사용 (DRY 원칙 준수)
         const fullRes = _calculateTotalSim(data);
-        SimState.simResults[stock.code] = {
-          ...fullRes,
-          todaySignal: reasons.join('+'),
-          isTodaySub: true
-        };
-      }
-    });
+        if (!fullRes || !fullRes.trades || fullRes.trades.length === 0) return;
+
+        const lastTrade = fullRes.trades[fullRes.trades.length - 1];
+        
+        // 시뮬레이터가 계산한 마지막 시그널일이 전체의 마지막 거래일(Today)과 일치하면 오늘자 신호로 간주
+        if (lastTrade.sigDate === globalLastDate) {
+          SimState.simResults[stock.code] = {
+            ...fullRes,
+            todaySignal: lastTrade.reason.replace('(대기)', '').replace('(In)', ''), // UI 표시용 다듬기
+            isTodaySub: true
+          };
+        }
+      });
 
     renderList();
     const foundCount = Object.keys(SimState.simResults).length;
@@ -1253,8 +2079,9 @@ async function runTodayScan() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.style.background = '#1e3a8a';
-      btn.innerHTML = '오늘';
+      btn.style.background = '#1e40af';
+      btn.innerHTML = '오늘 검색';
+      _updateRunButtonsState(); // 필터 유무에 따른 추가 검증
     }
   }
 }
@@ -1266,7 +2093,9 @@ async function runTodayScan() {
 function renderList() {
   syncColumnWidthsFromStorage();
 
-  const anyFilter = SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive;
+  const anyFilter = SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive || SimState.stochFilterActive;
+  const listEl = document.getElementById('stockList');
+  const emptyEl = document.getElementById('emptyState');
 
   // 시뮬레이션 버튼이 선택되기 전에는 리스트를 비워둠
   if (!SimState.simStarted) {
@@ -1282,52 +2111,61 @@ function renderList() {
     return;
   }
 
-  // 🚀 필터링 및 노출 조건
-  let sorted = getSelectedStocks().filter(stock => {
+  // 🚀 핵심: 선택된 종목(박제) vs 나머지 분리
+  const allStocks = getSelectedStocks(); // 전체 원본 종목
+  const pinnedSet = new Set(SimState.selectedCodes);
+
+  // 1) 박제된 종목 그룹: 지표 신호(total > 0) 상관없이 무조건 상단 유지 및 순서 고정
+  const pinnedList = SimState.selectedCodes
+    .map(code => allStocks.find(s => s.code === code))
+    .filter(Boolean);
+
+  // 2) 나머지 종목 그룹: 지표 조건 필터링 및 현재 정렬 기준 적용
+  let remainingList = allStocks.filter(stock => {
+    if (pinnedSet.has(stock.code)) return false; // 상단 박제된 건 제외
     const res = SimState.simResults[stock.code];
-    return res && res.total > 0;
+    return res && res.total > 0; // 신호가 있는 놈만 
   });
 
-  const listEl = document.getElementById('stockList');
-  const emptyEl = document.getElementById('emptyState');
-
-  // 정렬 로직 (사용자 직접 정렬이 없으면 수익률 높은 순 -> 성공률 순)
+  // 나머지 종목에 대해서만 정렬 수행
   if (SimState.sortCol) {
-    sorted = sortList(sorted, SimState.sortCol, SimState.sortDir);
+    remainingList = sortList(remainingList, SimState.sortCol, SimState.sortDir);
   } else {
-    sorted.sort((a, b) => {
+    remainingList.sort((a, b) => {
       const ra = SimState.simResults[a.code], rb = SimState.simResults[b.code];
       if (ra && rb) {
         if (rb.pnl !== ra.pnl) return rb.pnl - ra.pnl; // 수익률 내림차순
+        if (rb.diffPnl !== ra.diffPnl) return rb.diffPnl - ra.diffPnl; 
         const rateA = ra.success / ra.total, rateB = rb.success / rb.total;
-        return rateB - rateA; // 성공률 내림차순
+        return rateB - rateA;
       }
       return (a.name || a.code).localeCompare(b.name || b.code);
     });
   }
 
-  updateStockCount(sorted.length);
+  // 3) 최종 결합: [선택/박제 종목들] + [조건에 부합하는 나머지 정렬 종목들]
+  const finalDisplayList = [...pinnedList, ...remainingList];
 
-  if (!sorted.length) {
+  updateStockCount(finalDisplayList.length);
+
+  if (!finalDisplayList.length) {
     listEl.innerHTML = '';
     if (emptyEl) {
       emptyEl.style.display = 'flex';
       const hint = emptyEl.querySelector('.empty-hint');
-      if (hint) {
-        hint.textContent = anyFilter ? '조건에 맞는 종목이 없습니다.' : '종목을 등록하세요.';
-      }
+      if (hint) hint.textContent = anyFilter ? '조건에 맞는 종목이 없습니다.' : '종목을 등록하세요.';
     }
     return;
   }
   if (emptyEl) emptyEl.style.display = 'none';
 
-  // 완전 초기화 후 재생성 — emptyState가 리스트 밖으로 이동했으므로 innerHTML 안전
   listEl.innerHTML = '';
-
   const frag = document.createDocumentFragment();
-  sorted.forEach(stock => {
+  
+  finalDisplayList.forEach((stock, idx) => {
     const data = SimState.watchData[stock.code];
-    frag.appendChild(buildListItem(stock, data));
+    const isPinned = pinnedSet.has(stock.code);
+    frag.appendChild(buildListItem(stock, data, idx + 1, isPinned));
   });
   listEl.appendChild(frag);
 
@@ -1335,40 +2173,96 @@ function renderList() {
 }
 
 /* ── 리스트 행 생성 ── */
-function buildListItem(stock, data) {
+function buildListItem(stock, data, rowNum, isPinned) {
   const item = document.createElement('div');
-  item.className = 'stock-item';
+  item.className = 'stock-item' + (isPinned ? ' row-pinned' : '');
   item.dataset.code = stock.code;
 
-  // 시뮬레이션 결과
   let simCountStr = '--';
   let simPnlStr = '--';
   let pnlClass = '';
+  let simBHStr = '--';
+  let bhClass = '';
+
   const res = SimState.simResults[stock.code];
   
   if (res) {
     simCountStr = `${res.success}/${res.total}`;
+    
+    // 🚀 신규: 비교수익률 (전략 - 단순보유) - 소수점 제거
+    const diff = res.diffPnl || 0;
+    const diffClass = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+    const simDiffStr = res.total > 0 ? `${diff >= 0 ? '+' : ''}${Math.trunc(diff)}%` : '--';
+
     const pnl = res.pnl || 0;
     pnlClass = pnl > 0 ? 'up' : pnl < 0 ? 'down' : '';
-    simPnlStr = `${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}%`;
+    simPnlStr = `${pnl >= 0 ? '+' : ''}${Math.trunc(pnl)}%`;
+
+    const bh = res.buyAndHoldPnl || 0;
+    bhClass = bh > 0 ? 'up' : bh < 0 ? 'down' : '';
+    simBHStr = res.total > 0 ? `${bh >= 0 ? '+' : ''}${Math.trunc(bh)}%` : '--';
     
-    // 오늘 신호인 경우 종목명 옆이나 성공횟수 자리에 작게 힌트 추가 가능
     if (SimState.todayMode && res.todaySignal) {
       simCountStr += `<div style="font-size:9px; color:var(--accent); margin-top:1px;">${res.todaySignal}</div>`;
     }
+
+    item.innerHTML = `
+      <div class="col-idx" style="min-width: 24px; text-align: center; color: var(--text-muted);">${rowNum || ''}</div>
+      <div class="col-name" style="flex: 1; min-width: 0; padding-left: 4px;">
+        <span class="item-name">${data?.name || stock.name || stock.code}</span>
+      </div>
+      <div class="col-item col-sim-count" style="min-width: 50px;">${simCountStr}</div>
+      <div class="col-item col-sim-diff ${diffClass}" style="min-width: 50px; font-weight: 700;">${simDiffStr}</div>
+      <div class="col-item col-sim-pnl ${pnlClass}" style="min-width: 50px;">${simPnlStr}</div>
+      <div class="col-item col-sim-bh ${bhClass}" style="min-width: 50px;">${simBHStr}</div>`;
+  } else {
+    // 결과 없을 때 기본값
+    item.innerHTML = `
+      <div class="col-idx" style="min-width: 24px; text-align: center; color: var(--text-muted);">${rowNum || ''}</div>
+      <div class="col-name" style="flex: 1; min-width: 0; padding-left: 4px;">
+        <span class="item-name">${data?.name || stock.name || stock.code}</span>
+      </div>
+      <div class="col-item col-sim-count" style="min-width: 50px;">--</div>
+      <div class="col-item col-sim-diff" style="min-width: 50px;">--</div>
+      <div class="col-item col-sim-pnl" style="min-width: 50px;">--</div>
+      <div class="col-item col-sim-bh" style="min-width: 50px;">--</div>`;
   }
 
-  item.innerHTML = `
-    <div class="col-name" style="flex: 1;">
-      <span class="item-name">${data?.name || stock.name || stock.code}</span>
-      <span class="item-code">${data?.ticker || stock.code}</span>
-    </div>
-    <div class="col-item col-sim-count" style="min-width: 90px;">${simCountStr}</div>
-    <div class="col-item col-sim-pnl ${pnlClass}" style="min-width: 90px;">${simPnlStr}</div>`;
-
   item.addEventListener('click', e => {
-    showStockPreview(stock.code);
-    highlightActiveRow(stock.code);
+    // 🚀 Ctrl 키가 눌려있으면: 박제(Multi Select) 토글
+    if (e.ctrlKey) {
+      const codeIdx = SimState.selectedCodes.indexOf(stock.code);
+      if (codeIdx > -1) {
+        SimState.selectedCodes.splice(codeIdx, 1);
+      } else {
+        SimState.selectedCodes.push(stock.code);
+      }
+      _updateRunButtonsState(); // 최적조건 버튼 활성화 상태 갱신
+      renderList(); // 박제 위치 조정을 위해 재렌더링
+    } else {
+      // 일반 클릭
+      // 🚀 개별 종목 최적화 데이터가 있다면, 클릭한 종목 전용 세팅으로 UI 변신
+      if (SimState.optResults && SimState.optResults[stock.code]) {
+        const combo = SimState.optResults[stock.code];
+        Object.assign(SimState, combo);
+        SimState.holdDaysActive = false;
+        SimState.targetProfitActive = false;
+        SimState.bbFilterThreshold = 0;
+        
+        syncUIToState(combo);
+        _updateRunButtonsState();
+        
+        // 전체 리스트 재계산 (단, optResults가 있는 박제 종목들의 최고 기록은 _markSimDirty 내부에서 보호됨)
+        _markSimDirty(true); // 보호막 유지
+      }
+      
+      showStockPreview(stock.code);
+      highlightActiveRow(stock.code);
+      
+      if (SimState.optResults && SimState.optResults[stock.code]) {
+        renderList(); // 재계산된 점수판 반영
+      }
+    }
   });
   return item;
 }
@@ -1410,8 +2304,21 @@ function _refreshListItem(code) {
   const pnlEl = el.querySelector('.col-sim-pnl');
   if (pnlEl) {
     const pnl = sim?.pnl ?? 0;
-    pnlEl.textContent = sim ? (pnl >= 0 ? '+' : '') + pnl.toFixed(2) + '%' : '--';
+    pnlEl.textContent = sim ? (pnl >= 0 ? '+' : '') + Math.trunc(pnl) + '%' : '--';
     pnlEl.className = `col-item col-sim-pnl ${sim ? (pnl >= 0 ? 'up' : 'down') : ''}`;
+  }
+  const bhEl = el.querySelector('.col-sim-bh');
+  if (bhEl) {
+    const bh = sim?.buyAndHoldPnl ?? 0;
+    bhEl.textContent = sim && sim.total > 0 ? (bh >= 0 ? '+' : '') + Math.trunc(bh) + '%' : '--';
+    bhEl.className = `col-item col-sim-bh ${sim && sim.total > 0 ? (bh >= 0 ? 'up' : 'down') : ''}`;
+  }
+  const diffEl = el.querySelector('.col-sim-diff');
+  if (diffEl) {
+    const diff = sim?.diffPnl ?? 0;
+    diffEl.textContent = sim && sim.total > 0 ? (diff >= 0 ? '+' : '') + Math.trunc(diff) + '%' : '--';
+    diffEl.className = `col-item col-sim-diff ${sim && sim.total > 0 ? (diff >= 0 ? 'up' : 'down') : ''}`;
+    diffEl.style.fontWeight = '700';
   }
 }
 
@@ -1450,7 +2357,9 @@ function sortList(list, col, dir) {
       // ── 시뮬 결과 컬럼 ──
       case 'simCount': va = ra?.total ?? -1; vb = rb?.total ?? -1; break;
       case 'simWinRate': va = ra?.winRate ?? -Infinity; vb = rb?.winRate ?? -Infinity; break;
+      case 'simDiff': va = ra?.diffPnl ?? -Infinity; vb = rb?.diffPnl ?? -Infinity; break;
       case 'simPnl': va = ra?.pnl ?? -Infinity; vb = rb?.pnl ?? -Infinity; break;
+      case 'simBH': va = ra?.buyAndHoldPnl ?? -Infinity; vb = rb?.buyAndHoldPnl ?? -Infinity; break;
       case 'simAvgPnl': va = ra?.pnlAvg ?? -Infinity; vb = rb?.pnlAvg ?? -Infinity; break;
       case 'simLastDate': va = ra?.lastSignalDate ?? ''; vb = rb?.lastSignalDate ?? ''; break;
       // ── 레거시 컬럼 (다른 탭과 공유되는 sortList 호환) ──
@@ -1854,7 +2763,7 @@ function initKeyboardNavigation() {
           renderSimHistory(simRes.trades);
           Charts.renderMini('previewChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.selectedTradeIndex);
           Charts.renderEOM('eomChart', SimState.previewData, simRes, SimState.simPeriodMonths);
-          Charts.renderRSIStoch('rsiStochChart', SimState.previewData, simRes, SimState.simPeriodMonths);
+          Charts.renderRSIStoch('rsiStochChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS);
           return;
         }
       }
@@ -1946,10 +2855,10 @@ function initGroupSelect() {
   }
 
   select.addEventListener('change', () => {
-    _markSimDirty();
-    // 그룹 변경 시 현재 리스트 초기화 (옵션)
-    // SimState.simStarted = false;
-    // renderList();
+    // 그룹 변경 시 시뮬레이션 초기화 (이전 그룹 결과 제거)
+    SimState.simStarted = false;
+    SimState.simResults = {};
+    renderList();
   });
 }
 
@@ -1962,9 +2871,10 @@ function renderSimHistory(trades) {
   if (!body) return;
   body.innerHTML = '';
 
-  let cumPnl = 0;
+  let compoundMulti = 1.0;
   trades.forEach((t, idx) => {
-    cumPnl += (t.pnl || 0);
+    compoundMulti *= (1 + (t.pnl || 0) / 100);
+    const cumPnl = (compoundMulti - 1) * 100;
     const row = document.createElement('tr');
     row.dataset.index = idx; // 인덱스 저장
     row.style.cursor = 'pointer';
@@ -1992,8 +2902,10 @@ function renderSimHistory(trades) {
     if (t.isOpen) {
       exitCond = '<span style="color:var(--text-muted)">진행중</span>';
     } else {
-      const isTarget = Math.abs((t.pnl || 0) - SimState.simTargetProfit) < 0.01;
-      exitCond = isTarget ? '<span class="log-pnl up">목표달성</span>' : '기간만료';
+      // 🚀 신규: 저장된 exitReason이 있으면 우선 활용하고, 색상 매칭
+      const reasonMap = { '목표가': 'up', 'EOM매도': 'up', '기간만료': 'muted' };
+      const cls = reasonMap[t.exitReason] || '';
+      exitCond = `<span class="log-pnl ${cls}">${t.exitReason || '종료'}</span>`;
     }
 
     // 🚀 '보유' 로직 수정: 첫 번째 매매의 매수가를 기준으로 고정
@@ -2004,18 +2916,25 @@ function renderSimHistory(trades) {
     
     const holdPnl = firstBuyPrice > 0 ? ((targetPrice - firstBuyPrice) / firstBuyPrice) * 100 : 0;
 
+    // 🚀 신규: 가격 표시 (isUS 반영)
+    const isUS = SimState.previewData ? SimState.previewData.isUS : false;
+    const inPriceStr = fmtPrice(t.buyPrice, isUS);
+    const outPriceStr = t.isOpen ? '--' : fmtPrice(t.exitPrice, isUS);
+
     row.innerHTML = `
       <td title="${t.buyDate} ~ ${t.exitDate || '진행중'}">${dateDisplay}</td>
       <td style="color:var(--up); font-weight:600;">${t.reason || '신호(In)'}</td>
+      <td style="text-align: right; opacity: 0.8; font-size: 11px;">${inPriceStr}</td>
+      <td style="text-align: right; opacity: 0.8; font-size: 11px;">${outPriceStr}</td>
       <td>${exitCond}</td>
       <td class="log-pnl ${t.pnl >= 0 ? 'up' : 'down'}" style="text-align: right; font-weight:600;">
-        ${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}%
+        ${t.pnl >= 0 ? '+' : ''}${Math.trunc(t.pnl)}%
       </td>
       <td class="log-pnl ${cumPnl >= 0 ? 'up' : 'down'}" style="text-align: right; font-weight:500;">
-        ${cumPnl >= 0 ? '+' : ''}${cumPnl.toFixed(2)}%
+        ${cumPnl >= 0 ? '+' : ''}${Math.trunc(cumPnl)}%
       </td>
       <td class="log-pnl ${holdPnl >= 0 ? 'up' : 'down'}" style="text-align: right; opacity: 0.8; font-weight: 500;">
-        ${holdPnl >= 0 ? '+' : ''}${holdPnl.toFixed(2)}%
+        ${holdPnl >= 0 ? '+' : ''}${Math.trunc(holdPnl)}%
       </td>
     `;
 
@@ -2035,7 +2954,7 @@ function renderSimHistory(trades) {
         const simRes = SimState.simResults[SimState.previewCode] || SimState.simResults[data.code];
         Charts.renderMini('previewChart', data, simRes, SimState.simPeriodMonths, idx);
         Charts.renderEOM('eomChart', data, simRes, SimState.simPeriodMonths);
-        Charts.renderRSIStoch('rsiStochChart', data, simRes, SimState.simPeriodMonths);
+        Charts.renderRSIStoch('rsiStochChart', data, simRes, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS);
       }
     });
 
@@ -2071,8 +2990,10 @@ function renderSimHistory(trades) {
       <td></td>
       <td></td>
       <td></td>
+      <td></td>
+      <td></td>
       <td class="log-pnl ${totalHoldPnl >= 0 ? 'up' : 'down'}" style="text-align: right; font-weight:700;">
-        ${totalHoldPnl >= 0 ? '+' : ''}${totalHoldPnl.toFixed(2)}%
+        ${totalHoldPnl >= 0 ? '+' : ''}${Math.trunc(totalHoldPnl)}%
       </td>
     `;
     body.appendChild(lastRow);

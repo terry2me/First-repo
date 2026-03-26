@@ -32,6 +32,7 @@ from typing import Optional, Any
 from zoneinfo import ZoneInfo
 
 import yfinance as yf
+import yfinance.exceptions as yf_exc
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -377,6 +378,9 @@ def _yf_fetch_history(ticker_str: str, start: str, end: str, interval: str) -> l
                 "volume": float(row.get("Volume", 0) or 0),
             })
         return rows
+    except yf_exc.YFRateLimitError:
+        print(f"[yfinance] {ticker_str} Rate Limit 발생")
+        return "__RATE_LIMIT__"
     except Exception as e:
         print(f"[yfinance] {ticker_str} history 오류: {e}")
         return []
@@ -425,9 +429,12 @@ def _yf_download_batch(tickers: list[str], start: str, end: str, interval: str) 
                 print(f"[yfinance] {ticker} 파싱 오류: {e}")
                 result[ticker] = []
         return result
+    except yf_exc.YFRateLimitError:
+        print(f"[yfinance] batch download Rate Limit 발생")
+        return {"__fatal__": True}
     except Exception as e:
         print(f"[yfinance] batch download 오류: {e}")
-        return {t: [] for t in tickers}
+        return {t: [] for t in list(tickers) + ["__fatal__"]}
 
 
 def _yf_fetch_meta(ticker_str: str) -> dict:
@@ -684,6 +691,9 @@ def ensure_prices(ticker: str, market: str, interval: str, force: bool = False) 
     today = get_today_str(market)
     rows  = _yf_fetch_history(ticker, start, today, interval)
 
+    if rows == "__RATE_LIMIT__":
+        return "__RATE_LIMIT__"
+
     if not rows:
         print(f"[yfinance] {ticker} ({interval}) 데이터 없음")
         return False
@@ -745,14 +755,26 @@ def ensure_prices_batch(stocks_info: list[dict], interval: str, force: bool = Fa
     all_data = _yf_download_batch(tickers_to_fetch, earliest_start, today, interval)
     
     # DB 저장
+    is_fatal = all_data.get("__fatal__", False)
+    if is_fatal:
+        results["__fatal__"] = True
+
     for ticker, rows in all_data.items():
+        if ticker == "__fatal__": continue
         if rows:
             db_upsert_prices(ticker, rows, interval)
             results[ticker] = True
-        else:
-            # 다운로드 실패 시 개별 재시도 (안정성)
+        elif not is_fatal:
+            # 다운로드 실패 시 개별 재시도 (이미 Rate Limit 상태면 생략)
             print(f"[yfinance] {ticker} 배치 실패 -> 개별 재시도")
-            results[ticker] = ensure_prices(ticker, market, interval, force=True)
+            retry_res = ensure_prices(ticker, market, interval, force=True)
+            if retry_res == "__RATE_LIMIT__":
+                results["__fatal__"] = True
+                results[ticker] = False
+            else:
+                results[ticker] = retry_res
+        else:
+            results[ticker] = False
             
     return results
 
@@ -1037,8 +1059,9 @@ async def refresh_tab_stocks(req: BatchRequest):
         code = s_info['code']
         market = s_info['market']
         try:
+            is_fatal = price_results.get("__fatal__", False)
             if not price_results.get(ticker):
-                return {"code": code, "data": None, "error": "가격 데이터 없음"}
+                return {"code": code, "data": None, "error": "가격 데이터 없음", "fatal": is_fatal}
                 
             # 메타/펀더멘털은 일간 캐시가 적용되어 있어 날이 바뀌지 않았으면 DB 조회만 함
             ensure_meta_and_fundamentals(ticker, market)
@@ -1046,7 +1069,7 @@ async def refresh_tab_stocks(req: BatchRequest):
             data = build_response(ticker, market, req.interval, req.candle_count)
             return {"code": code, "data": data}
         except Exception as e:
-            return {"code": code, "data": None, "error": str(e)}
+            return {"code": code, "data": None, "error": str(e), "fatal": False}
 
     futures = [loop.run_in_executor(_executor, _finalize_one, s) for s in stocks_info]
     results = await asyncio.gather(*futures)

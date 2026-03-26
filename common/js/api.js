@@ -162,7 +162,7 @@ const API = (() => {
   async function fetchRefresh(stocks, candleCount, interval, onProgress) {
     if (!stocks || stocks.length === 0) return [];
 
-    const CHUNK_SIZE = 40;
+    const CHUNK_SIZE = 50;
     const results = [];
     console.log(`[API] fetchRefresh 시작: 총 ${stocks.length}종목, 배치 크기: ${CHUNK_SIZE}`);
 
@@ -196,8 +196,8 @@ const API = (() => {
             const errMsg = r?.error || '데이터 없음';
             const err = new Error(`[${s.code}] ${errMsg}`);
             onProgress?.(s.code, null, err);
-            // 에러 시 즉시 중단
-            throw err;
+            // 치명적 에러(Rate Limit 등)인 경우에만 즉시 중단
+            if (r?.fatal) throw err;
           }
         }
       } catch (e) {

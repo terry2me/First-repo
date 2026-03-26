@@ -206,11 +206,47 @@
 
     /* 시뮬 결과 데이터 가운데 정렬 */
     .col-sim-count,
-    .col-sim-pnl {
+    .col-sim-diff,
+    .col-sim-pnl,
+    .col-sim-bh {
       display: flex;
       align-items: center;
       justify-content: center;
       text-align: center;
+      padding: 0 0.5px !important; /* 🚀 칼럼 간 공백 추가 1/4로 축소 */
+    }
+    
+    .col-header {
+      padding: 0 0.5px !important; /* 🚀 헤더 공백 추가 축소 */
+    }
+
+    /* 🚀 종목명 스타일 최적화 (가로스크롤 방지) */
+    .col-name {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      overflow: hidden;
+      min-width: 0; /* flex 자식의 overflow 조절 필수 */
+      padding-right: 8px;
+    }
+
+    .item-name {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .item-code {
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 1px;
     }
 
     /* 시뮬레이션 이력 스타일 */
@@ -361,6 +397,145 @@
       padding: 0 4px !important;
       overflow: hidden !important;
     }
+
+    /* ── 시뮬레이션 헤더 신규 프리미엄 스타일 ── */
+    .sim-header-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 12px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sim-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .sim-group {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 5px;
+      padding: 6px 10px 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 6px;
+      position: relative;
+    }
+
+    .sim-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 2px;
+    }
+
+    .sim-controls-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+    }
+
+    .sim-input-group {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .sim-input-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-weight: 600;
+      opacity: 0.8;
+      white-space: nowrap;
+      min-width: fit-content;
+    }
+
+    /* 프리미엄 토글 (라디오 버튼 대체) */
+    .sim-toggle-pill {
+      display: flex;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .sim-toggle-pill label {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      transition: all 0.2s;
+      user-select: none;
+    }
+
+    .sim-toggle-pill input[type="radio"] {
+      display: none;
+    }
+
+    .sim-toggle-pill input[type="radio"]:checked + span {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .sim-toggle-pill span {
+      display: block;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    /* 커스텀 체크박스 */
+    .sim-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .sim-checkbox input {
+      accent-color: var(--accent);
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+    }
+
+    .sim-field {
+      height: 22px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-size: 11px;
+      padding: 0 6px;
+      outline: none;
+    }
+
+    .sim-field:focus {
+      border-color: var(--accent);
+    }
+    
+    /* 🚀 신규: 박제(Pinned)된 종목 행 스타일 */
+    .row-pinned {
+      background: rgba(59, 130, 246, 0.08) !important;
+      border-left: 3px solid #3b82f6 !important;
+    }
+    .row-pinned .col-idx {
+      color: #3b82f6 !important;
+      font-weight: 800;
+    }
   </style>
 </head>
 
@@ -451,12 +626,14 @@
                 <table class="sim-history-table">
                   <thead>
                     <tr>
-                      <th style="width: 110px;">날짜</th>
-                      <th style="width: 80px;">In</th>
-                      <th>Out</th>
-                      <th style="width: 70px; text-align: right;">수익</th>
-                      <th style="width: 70px; text-align: right;">누적</th>
-                      <th style="width: 70px; text-align: right;">보유</th>
+                      <th style="width: 100px;">날짜</th>
+                      <th style="width: 70px;">In</th>
+                      <th style="width: 70px; text-align: right;">In가격</th>
+                      <th style="width: 70px; text-align: right;">Out가격</th>
+                      <th style="width: 70px;">Out</th>
+                      <th style="width: 60px; text-align: right;">수익</th>
+                      <th style="width: 60px; text-align: right;">누적</th>
+                      <th style="width: 60px; text-align: right;">보유</th>
                     </tr>
                   </thead>
                   <tbody id="simHistoryBody"></tbody>
@@ -485,83 +662,220 @@
 
 
 
-        <div class="panel-header">
-          <div class="sim-header-bar">
-            <!-- BB 필터 -->
-            <div class="sim-header-item">
-              <span>BB하단(%)</span>
-              <label>
-                <input type="checkbox" id="checkBBFilter" checked>
-                <input type="number" id="inputBBThreshold" value="0" min="-50" max="50" step="0.5"
-                  class="sim-header-input">
-              </label>
+        <div class="sim-header-container">
+          <!-- 행 1: 기본 분석 설정 -->
+          <div class="sim-row">
+            <div class="sim-group" style="flex: 1; flex-direction: row; align-items: center; gap: 18px; background: rgba(255, 255, 255, 0.02);">
+              <div class="sim-input-group">
+                <span class="sim-input-label">기간</span>
+                <select id="simPeriodMonths" class="sim-field" style="width: 52px;">
+                  <option value="1">1M</option>
+                  <option value="3">3M</option>
+                  <option value="6" selected>6M</option>
+                  <option value="12">12M</option>
+                </select>
+              </div>
+              <div class="sim-input-group">
+                <label class="sim-checkbox" style="gap: 4px; margin-right: -4px;">
+                  <input type="checkbox" id="checkHoldDays">
+                </label>
+                <span class="sim-input-label">보유일</span>
+                <input type="number" id="simHoldingDays" value="5" min="1" max="60" class="sim-field" style="width: 46px;">
+              </div>
+              <div class="sim-input-group">
+                <label class="sim-checkbox" style="gap: 4px; margin-right: -4px;">
+                  <input type="checkbox" id="checkTargetProfit">
+                </label>
+                <span class="sim-input-label">익절%</span>
+                <input type="number" id="simTargetProfit" value="5" min="1" max="100" step="1" class="sim-field" style="width: 53px;">
+              </div>
+              <div class="sim-input-group">
+                <span class="sim-input-label">유효일</span>
+                <input type="number" id="simSignalWindow" value="1" min="1" max="10" class="sim-field" style="width: 46px;">
+              </div>
+              <div class="sim-input-group" style="margin-left: auto;">
+                <span class="sim-input-label">그룹</span>
+                <select id="simGroupSelect" class="sim-field" style="width: 96px;">
+                  <option value="all">전체 종목</option>
+                </select>
+              </div>
             </div>
+          </div>
 
-            <div class="sim-header-sep"></div>
+          <!-- 행 2: 공통 체결 정책 (가격/신호 기준 가로 배치) -->
+          <div class="sim-row">
+            <div class="sim-group" style="flex: 1; flex-direction: row; align-items: center; gap: 15px; background: rgba(59, 130, 246, 0.06); border-color: rgba(59, 130, 246, 0.15); padding: 4px 10px;">
+              
+              <!-- 가격 섹션 -->
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <span class="sim-input-label" style="font-weight: 800; color: var(--accent); font-size: 11px;">가격</span>
+                <div style="display: flex; align-items: center; gap: 3px;">
+                  <span class="sim-input-label" style="min-width: auto; opacity: 1; font-size: 11px;">매수</span>
+                  <div class="sim-toggle-pill">
+                    <label><input type="radio" name="bbBuyPriceType" value="close" checked><span>종가</span></label>
+                    <label><input type="radio" name="bbBuyPriceType" value="high"><span>고가</span></label>
+                    <label><input type="radio" name="bbBuyPriceType" value="low"><span>저가</span></label>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 3px;">
+                  <span class="sim-input-label" style="min-width: auto; opacity: 1; font-size: 11px;">매도</span>
+                  <div class="sim-toggle-pill">
+                    <label><input type="radio" name="bbSellPriceType" value="close" checked><span>종가</span></label>
+                    <label><input type="radio" name="bbSellPriceType" value="high"><span>고가</span></label>
+                    <label><input type="radio" name="bbSellPriceType" value="low"><span>저가</span></label>
+                  </div>
+                </div>
+              </div>
 
-            <!-- EOM 필터 -->
-            <div class="sim-header-item">
-              <span>EOM</span>
-              <label>
-                <input type="checkbox" id="checkEomFilter">
-              </label>
+              <!-- 세로 구분선 -->
+              <div style="width: 1px; height: 14px; background: rgba(255,255,255,0.1);"></div>
+
+              <!-- 신호 섹션 -->
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <span class="sim-input-label" style="font-weight: 800; color: var(--accent); font-size: 11px;">신호</span>
+                <div style="display: flex; align-items: center; gap: 3px;">
+                  <span class="sim-input-label" style="min-width: auto; opacity: 1; font-size: 11px;">매수</span>
+                  <div class="sim-toggle-pill">
+                    <label><input type="radio" name="simBuyTiming" value="today" checked><span>당일</span></label>
+                    <label><input type="radio" name="simBuyTiming" value="next"><span>익일</span></label>
+                  </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 3px;">
+                  <span class="sim-input-label" style="min-width: auto; opacity: 1; font-size: 11px;">매도</span>
+                  <div class="sim-toggle-pill">
+                    <label><input type="radio" name="simSellTiming" value="today" checked><span>당일</span></label>
+                    <label><input type="radio" name="simSellTiming" value="next"><span>익일</span></label>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div class="sim-header-sep"></div>
-
-            <!-- RSI 필터 -->
-            <div class="sim-header-item">
-              <span>RSI+St</span>
-              <label>
-                <input type="checkbox" id="checkRsiFilter">
-              </label>
+          <!-- 행 3: 볼린저 밴드 전략 -->
+          <div class="sim-row" style="align-items: stretch;">
+            <div class="sim-group" style="flex: 1; align-items: stretch; gap: 8px; background: rgba(59, 130, 246, 0.03); border-color: rgba(59, 130, 246, 0.1); padding: 8px 12px;">
+              <div style="display: flex; align-items: center; gap: 20px;">
+                <div class="sim-input-group">
+                  <input type="checkbox" id="checkBBFilter" checked style="width:14px; height:14px; accent-color:var(--accent);">
+                  <span class="sim-input-label" style="font-weight: 800; color: var(--accent);">BB</span>
+                  <div class="sim-toggle-pill" style="margin-left: 2px;">
+                    <label><input type="radio" name="bbReq" value="req" checked><span>필수</span></label>
+                    <label><input type="radio" name="bbReq" value="opt"><span>선택</span></label>
+                  </div>
+                </div>
+                <div class="sim-input-group">
+                  <span class="sim-input-label">기준선</span>
+                  <div class="sim-toggle-pill">
+                    <label><input type="radio" name="bbBase" value="lower" checked><span>하단</span></label>
+                    <label><input type="radio" name="bbBase" value="middle"><span>중단</span></label>
+                  </div>
+                </div>
+                <div class="sim-input-group">
+                  <span class="sim-input-label">이탈범위%</span>
+                  <input type="number" id="inputBBThreshold" value="0" min="-50" max="50" step="0.5" class="sim-field" style="width: 42px;">
+                </div>
+                <div class="sim-input-group">
+                  <span class="sim-input-label">방향</span>
+                  <div style="display: flex; gap: 10px; align-items: center;">
+                    <label class="sim-checkbox" style="font-size: 10px;"><input type="checkbox" id="checkBBCrossDown" checked> 이탈</label>
+                    <label class="sim-checkbox" style="font-size: 10px;"><input type="checkbox" id="checkBBCrossUp"> 돌파</label>
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div class="sim-header-sep"></div>
-
-            <!-- 분석 파라미터 -->
-            <div class="sim-header-item">
-              <span>분석기간</span>
-              <select id="simPeriodMonths" class="sim-header-input" style="width: 68px;">
-                <option value="1">1개월</option>
-                <option value="3">3개월</option>
-                <option value="6" selected>6개월</option>
-                <option value="12">12개월</option>
-              </select>
+          <!-- 행 4: RSI 상세 설정 -->
+          <div class="sim-row" style="align-items: stretch;">
+            <div class="sim-group" style="flex: 1; align-items: stretch; gap: 8px; background: rgba(168, 85, 247, 0.03); border-color: rgba(168, 85, 247, 0.1); padding: 6px 12px;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <!-- RSI Sect -->
+                <div class="sim-input-group">
+                  <input type="checkbox" id="checkRsiFilter" style="width:14px; height:14px; accent-color:#a855f7;">
+                  <span class="sim-input-label" style="font-weight: 800; color: #a855f7;">RSI</span>
+                  <div class="sim-toggle-pill" style="margin-left: 2px;">
+                    <label><input type="radio" name="rsiReq" value="req" checked><span>필수</span></label>
+                    <label><input type="radio" name="rsiReq" value="opt"><span>선택</span></label>
+                  </div>
+                  <span class="sim-input-label" style="margin-left: 5px;">기간</span>
+                  <input type="number" id="inputRsiPeriod" value="14" min="2" max="100" class="sim-field" style="width: 52px;">
+                  <span class="sim-input-label" style="margin-left: 4px;">OB</span>
+                  <input type="number" id="inputRsiOB" value="70" min="50" max="100" class="sim-field" style="width: 44px;">
+                  <span class="sim-input-label">OS</span>
+                  <input type="number" id="inputRsiOS" value="30" min="0" max="50" class="sim-field" style="width: 44px;">
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div class="sim-header-item">
-              <span>보유일</span>
-              <input type="number" id="simHoldingDays" value="5" min="1" max="60" class="sim-header-input">
+          <!-- 행 5: Stochastic 상세 설정 -->
+          <div class="sim-row" style="align-items: stretch;">
+            <div class="sim-group" style="flex: 1; align-items: stretch; gap: 8px; background: rgba(168, 85, 247, 0.03); border-color: rgba(168, 85, 247, 0.1); padding: 6px 12px;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <!-- Stoch Sect -->
+                <div class="sim-input-group">
+                  <input type="checkbox" id="checkStochFilter" style="width:14px; height:14px; accent-color:#a855f7;">
+                  <span class="sim-input-label" style="font-weight: 800; color: #a855f7;">STOCH</span>
+                  <div class="sim-toggle-pill" style="margin-left: 2px;">
+                    <label><input type="radio" name="stochReq" value="req" checked><span>필수</span></label>
+                    <label><input type="radio" name="stochReq" value="opt"><span>선택</span></label>
+                  </div>
+                  <span class="sim-input-label" style="margin-left: 5px;">K/SK/SD</span>
+                  <div style="display: flex; gap: 1px;">
+                    <input type="number" id="inputStochK" value="14" min="2" max="100" class="sim-field" style="width: 52px;">
+                    <input type="number" id="inputStochSK" value="3" min="1" max="100" class="sim-field" style="width: 44px;">
+                    <input type="number" id="inputStochSD" value="3" min="1" max="100" class="sim-field" style="width: 44px;">
+                  </div>
+                </div>
+
+                <!-- Stoch Thresholds -->
+                <div class="sim-input-group" style="margin-left: auto;">
+                  <span class="sim-input-label" style="font-weight: 600; color: #fbbf24;">ST</span>
+                  <div style="display: flex; gap: 1px; align-items: center;">
+                    <span class="sim-input-label" style="min-width: auto;">OB</span>
+                    <input type="number" id="inputStochOB" value="80" min="50" max="100" class="sim-field" style="width: 52px;">
+                    <span class="sim-input-label" style="min-width: auto; margin-left: 4px;">OS</span>
+                    <input type="number" id="inputStochOS" value="20" min="0" max="50" class="sim-field" style="width: 52px;">
+                  </div>
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div class="sim-header-item">
-              <span>목표수익</span>
-              <input type="number" id="simTargetProfit" value="5.0" min="0.1" max="100" step="0.1"
-                class="sim-header-input">
+          <!-- 행 6: EOM 수정본 -->
+          <div class="sim-row" style="align-items: stretch;">
+            <div class="sim-group" style="flex: 1; align-items: stretch; gap: 8px; background: rgba(34, 211, 238, 0.03); border-color: rgba(34, 211, 238, 0.1); padding: 6px 12px;">
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="checkbox" id="checkEomFilter" style="width:14px; height:14px; accent-color:#22d3ee;">
+                <span class="sim-input-label" style="font-weight: 800; color: #22d3ee;">EOM</span>
+                <div class="sim-toggle-pill">
+                  <label><input type="radio" name="eomReq" value="req" checked><span>필수</span></label>
+                  <label><input type="radio" name="eomReq" value="opt"><span>선택</span></label>
+                </div>
+                <span class="sim-input-label">기간</span>
+                <input type="number" id="inputEomPeriod" value="14" min="2" max="50" class="sim-field" style="width: 44px;">
+                <span class="sim-input-label">신호</span>
+                <input type="number" id="inputEomSignal" value="14" min="2" max="50" class="sim-field" style="width: 44px;">
+              </div>
             </div>
+          </div>
 
-            <div class="sim-header-item">
-              <span>신호유효</span>
-              <input type="number" id="simSignalWindow" value="1" min="1" max="10" class="sim-header-input">
+          <!-- 행 7: 탈출 지표 및 실행 버튼 -->
+          <div class="sim-row" style="display: flex; align-items: center; justify-content: space-between; padding: 6px 12px; border-top: 1px dotted rgba(255,255,255,0.2); margin-top: 4px;">
+            <div style="display: flex; gap: 15px; align-items: center;">
+              <span class="sim-input-label" style="font-weight: 800; color: #f87171;">탈출(매도) 지표</span>
+              <label class="sim-checkbox"><input type="checkbox" id="checkSellBB" checked style="accent-color:#f87171;"> BB</label>
+              <label class="sim-checkbox"><input type="checkbox" id="checkSellRSI" style="accent-color:#f87171;"> RSI</label>
+              <label class="sim-checkbox"><input type="checkbox" id="checkSellSTOCH" style="accent-color:#f87171;"> STOCH</label>
+              <label class="sim-checkbox"><input type="checkbox" id="checkSellEOM" style="accent-color:#f87171;"> EOM</label>
             </div>
-
-            <div class="sim-header-item">
-              <span>관심그룹</span>
-              <select id="simGroupSelect" class="sim-header-input" style="width: 80px;">
-                <option value="all">전체</option>
-              </select>
+            <div style="display: flex; gap: 8px;">
+              <button id="btnResetFilters" class="btn-simulation" style="background: transparent; border: 1px solid rgba(255,255,255,0.2); color: var(--text-muted); height: 28px; width: 44px; padding: 0; font-size: 13px;" title="조건 설정 초기화">↺</button>
+              <button id="btnOptimize" class="btn-simulation" style="background: #7e22ce; height: 28px; width: 70px; opacity: 0.5; cursor: not-allowed;" title="종목을 Ctrl+Click으로 고정하면 활성화됩니다." disabled>최적조건</button>
+              <button id="btnTodayScan" class="btn-simulation" style="background: #1e40af; height: 28px; width: 56px;">오늘검색</button>
+              <button id="btnRunSim" class="btn-simulation" style="height: 28px; width: 56px;">시작</button>
             </div>
-
-            <button id="btnTodayScan" class="btn-simulation" style="margin-left: auto; background: #1e3a8a;">
-              오늘
-            </button>
-            <button id="btnRunSim" class="btn-simulation" style="margin-left: 8px;">
-              시작
-            </button>
-
-            <!-- 기존 stockCount 유지 (display:none으로 숨김 처리하여 JS 오류 방지) -->
-            <span id="stockCount" style="display:none;">0</span>
+            <div id="stockCount" style="display:none;">0</div>
           </div>
         </div>
 
@@ -570,16 +884,25 @@
 
           <!-- 컬럼 헤더 -->
           <div class="list-header" id="listHeader">
-            <div class="col-header col-name" data-col-id="name" style="flex: 1;">
-              <span class="sort-col" data-col="name">종목명<span class="sort-icon" id="sort-name"><i
+            <div class="col-header col-idx" style="min-width: 24px; text-align: center; color: var(--text-muted);">#</div>
+            <div class="col-header col-name" data-col-id="name" style="flex: 1; min-width: 0; padding-left: 4px;">
+              <span class="sort-col" data-col="name" style="justify-content: flex-start !important;">종목명<span class="sort-icon" id="sort-name"><i
                     class="fas fa-sort"></i></span></span>
             </div>
-            <div class="col-header col-sim-count" data-col-id="simCount" style="min-width: 90px;">
-              <span class="sort-col" data-col="simCount">성공/총횟수<span class="sort-icon" id="sort-simCount"><i
+            <div class="col-header col-sim-count" data-col-id="simCount" style="min-width: 50px;">
+              <span class="sort-col" data-col="simCount">성공/총<span class="sort-icon" id="sort-simCount"><i
                     class="fas fa-sort"></i></span></span>
             </div>
-            <div class="col-header col-sim-pnl" data-col-id="simPnl" style="min-width: 90px;">
-              <span class="sort-col" data-col="simPnl">누적수익률<span class="sort-icon" id="sort-simPnl"><i
+            <div class="col-header col-sim-diff" data-col-id="simDiff" style="min-width: 50px;">
+              <span class="sort-col" data-col="simDiff">비교<span class="sort-icon" id="sort-simDiff"><i
+                    class="fas fa-sort"></i></span></span>
+            </div>
+            <div class="col-header col-sim-pnl" data-col-id="simPnl" style="min-width: 50px;">
+              <span class="sort-col" data-col="simPnl">누적<span class="sort-icon" id="sort-simPnl"><i
+                    class="fas fa-sort"></i></span></span>
+            </div>
+            <div class="col-header col-sim-bh" data-col-id="simBH" style="min-width: 50px;">
+              <span class="sort-col" data-col="simBH">보유<span class="sort-icon" id="sort-simBH"><i
                     class="fas fa-sort"></i></span></span>
             </div>
           </div>

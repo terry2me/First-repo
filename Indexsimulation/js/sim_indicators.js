@@ -213,14 +213,14 @@ const Indicators = (() => {
       if (e !== null && s !== null) {
         const ep = eomArr[i - 1], sp = sigArr[i - 1];
         if (ep !== null && sp !== null) {
-          // EOM이 Signal을 상향 돌파 → BUY
+          // [우선순위 1] EOM이 Signal을 상향 돌파 → BUY
           if (ep <= sp && e > s) crossSignal = 'BUY';
-          // EOM이 Signal을 하향 돌파 → SELL
+          // [우선순위 1] EOM이 Signal을 하향 돌파 → SELL
           else if (ep >= sp && e < s) crossSignal = 'SELL';
-          // EOM이 0선 상향 돌파 → BUY (신호 없으면)
-          else if (!crossSignal && eomArr[i-1] !== null && eomArr[i-1] < 0 && e >= 0) crossSignal = 'BUY';
-          // EOM이 0선 하향 돌파 → SELL
-          else if (!crossSignal && eomArr[i-1] !== null && eomArr[i-1] >= 0 && e < 0) crossSignal = 'SELL';
+          // [우선순위 2] Signal 크로스 없을 때: 0선 상향 돌파 → BUY (독립 if)
+          if (!crossSignal && eomArr[i-1] < 0 && e >= 0) crossSignal = 'BUY';
+          // [우선순위 2] Signal 크로스 없을 때: 0선 하향 돌파 → SELL
+          else if (!crossSignal && eomArr[i-1] >= 0 && e < 0) crossSignal = 'SELL';
         }
       }
       result.push({ eom: e, signal: s, crossSignal });
@@ -334,8 +334,9 @@ const Indicators = (() => {
   function rsiStoch(closes, candles, opts = {}) {
     const {
       rsiPeriod = 14,
+      rsiOB = 70, rsiOS = 30,   // RSI 전용 OB/OS (표준: OB=70, OS=30)
       k1 = 14, k2 = 3, d = 3,
-      ob = 80, os = 20,
+      ob = 80, os = 20,          // Stochastic 전용 OB/OS (표준: OB=80, OS=20)
     } = opts;
 
     const rsiArr   = rsi(closes, rsiPeriod);
@@ -344,22 +345,32 @@ const Indicators = (() => {
 
     return rsiArr.map((r, i) => {
       const st = stochArr[i];
-      let signal = null;
+      let rsiSignal = null;
+      let stochSignal = null;
       if (r !== null && st.slowK !== null && st.slowD !== null) {
         const prevSt = i > 0 ? stochArr[i - 1] : null;
+        const prevR  = i > 0 ? rsiArr[i - 1]   : null;
         const kCrossUp   = prevSt && prevSt.slowK !== null && prevSt.slowK <= prevSt.slowD && st.slowK > st.slowD;
         const kCrossDown = prevSt && prevSt.slowK !== null && prevSt.slowK >= prevSt.slowD && st.slowK < st.slowD;
-        if (r < 50 && st.slowK < os + 10 && kCrossUp)   signal = 'BUY';
-        if (r > 50 && st.slowK > ob - 10 && kCrossDown) signal = 'SELL';
+
+        // RSI 신호 — 크로스오버 기반 (1회성 시점 신호, 상태 지속 방지)
+        // BUY : RSI가 과매도(OS) 구간 상향 돌파 (이전 <= OS, 현재 > OS)
+        if (prevR !== null && prevR <= rsiOS && r > rsiOS) rsiSignal = 'BUY';
+        // SELL: RSI가 과매수(OB) 구간 하향 돌파 (이전 >= OB, 현재 < OB)
+        else if (prevR !== null && prevR >= rsiOB && r < rsiOB) rsiSignal = 'SELL';
+
+        // Stoch 신호 — Stochastic 전용 OB/OS 사용 (기본값: OS=20, OB=80)
+        if (st.slowK < os && kCrossUp)        stochSignal = 'BUY';
+        else if (st.slowK > ob && kCrossDown) stochSignal = 'SELL';
       }
-      return { rsi: r, slowK: st.slowK, slowD: st.slowD, signal };
+      return { rsi: r, slowK: st.slowK, slowD: st.slowD, rsiSignal, stochSignal };
     });
   }
 
   /**
    * analyze() 확장 — BB 외에 EOM / RSI+Stochastic도 함께 계산
    */
-  function analyzeAll(stockData, bbPeriod = 20) {
+  function analyzeAll(stockData, bbPeriod = 20, indicatorOpts = {}) {
     const base = analyze(stockData, bbPeriod);
 
     const allC   = stockData.allCandles || stockData.candles;
@@ -368,10 +379,10 @@ const Indicators = (() => {
     const slice  = stockData.candles.length;
     const offset = total - slice;
 
-    // EOM
-    const eomAll = eom(allC, 14, 14);
-    // RSI + Stochastic
-    const rsStAll = rsiStoch(allCls, allC, { rsiPeriod:14, k1:14, k2:3, d:3, ob:80, os:20 });
+    // EOM — indicatorOpts의 eomPeriod/eomSignal 사용 (기본: 14/14)
+    const eomAll = eom(allC, indicatorOpts.eomPeriod || 14, indicatorOpts.eomSignal || 14);
+    // RSI + Stochastic (기존 하드코딩 { rsiPeriod:14, k1:14, k2:3, d:3, ob:80, os:20 } -> dynamic)
+    const rsStAll = rsiStoch(allCls, allC, indicatorOpts);
 
     // 화면 슬라이스에 붙이기
     const candlesWithIndicators = base.candlesWithBB.map((c, i) => {
@@ -384,7 +395,8 @@ const Indicators = (() => {
         rsi:         rsStAll[bi]?.rsi        ?? null,
         slowK:       rsStAll[bi]?.slowK      ?? null,
         slowD:       rsStAll[bi]?.slowD      ?? null,
-        rsiStSignal: rsStAll[bi]?.signal     ?? null,
+        rsiSignal:   rsStAll[bi]?.rsiSignal  ?? null,
+        stochSignal: rsStAll[bi]?.stochSignal ?? null,
       };
     });
 

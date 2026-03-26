@@ -75,8 +75,8 @@ const Charts = (() => {
 
         if (bIdx !== -1) {
           buyMarkers.push({
-            // 🚀 매수는 캔들 하단(low)에 표시 (매도와 겹침 방지)
-            value: [bIdx, candlesToDraw[bIdx].low],
+            // 🚀 매수/매도 모두 캔들 최상단(high)에 배치하여 일봉 가림 방지
+            value: [bIdx, candlesToDraw[bIdx].high],
             itemStyle: isHighlighted ? { color: COLOR.candleUp, borderColor: '#fff', borderWidth: 2.5 } : {},
             label: isHighlighted ? { color: '#fff', fontSize: 11 } : {},
             symbolSize: isHighlighted ? 28 : 20,
@@ -159,6 +159,7 @@ const Charts = (() => {
         {
           name: 'SIM_IN', type: 'scatter', data: buyMarkers,
           symbol: 'pin', symbolSize: 20,
+          symbolOffset: [0, '-10%'], // 🚀 살짝 위로 띄워서 캔들과 겹침 방지
           itemStyle: { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 1.5 },
           label: {
             show: true, formatter: 'In', position: 'inside',
@@ -170,7 +171,8 @@ const Charts = (() => {
         // 시뮬레이션 매도 마커 (Out)
         {
           name: 'SIM_OUT', type: 'scatter', data: sellMarkers,
-          symbol: 'pin', symbolSize: 20, // 🚀 회전 제거 (캔들 위로 배치)
+          symbol: 'pin', symbolSize: 20, 
+          symbolOffset: [0, '-10%'], // 🚀 살짝 위로 띄워서 캔들과 겹침 방지
           itemStyle: { color: '#60a5fa', borderColor: '#fff', borderWidth: 1.5 },
           label: {
             show: true, formatter: 'Out', position: 'inside',
@@ -401,6 +403,7 @@ const Charts = (() => {
         {
           name: 'SIM_IN', type: 'scatter', data: buyMarkers, xAxisIndex: 0, yAxisIndex: 0,
           symbol: 'pin', symbolSize: 20,
+          symbolOffset: [0, '-10%'], // 🚀 띄우기
           itemStyle: { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 },
           label: {
             show: true, formatter: 'In', position: 'inside',
@@ -412,6 +415,7 @@ const Charts = (() => {
         {
           name: 'SIM_OUT', type: 'scatter', data: sellMarkers, xAxisIndex: 0, yAxisIndex: 0,
           symbol: 'pin', symbolSize: 20,
+          symbolOffset: [0, '-10%'], // 🚀 띄우기
           itemStyle: { color: '#60a5fa', borderColor: '#fff', borderWidth: 2 },
           label: {
             show: true, formatter: 'Out', position: 'inside',
@@ -518,7 +522,7 @@ const Charts = (() => {
   /**
    * RSI + Stochastic 서브차트
    */
-  function renderRSIStoch(domId, data, simResult, simPeriodMonths) {
+  function renderRSIStoch(domId, data, simResult, simPeriodMonths, rsiOB = 70, rsiOS = 30, stochOB = 80, stochOS = 20) {
     const dom = document.getElementById(domId);
     if (!dom) return;
     if (_instances[domId]) _instances[domId].dispose();
@@ -538,8 +542,15 @@ const Charts = (() => {
     const dArr = cands.map(c => c.slowD !== null ? parseFloat(c.slowD.toFixed(2)) : null);
 
     // 🚀 지표 차트는 시뮬레이션 결과와 관계없이 항상 "순수 지표 신호"만 표시 
-    const buyS = cands.map((c, i) => c.rsiStSignal === 'BUY' ? [i, rsiArr[i]] : null).filter(Boolean);
-    const sellS = cands.map((c, i) => c.rsiStSignal === 'SELL' ? [i, rsiArr[i]] : null).filter(Boolean);
+    // RSI와 Stochastic 신호가 분리되었으므로, 둘 중 하나라도 있으면 표시 (우선순위: RSI > Stoch)
+    const buyS = cands.map((c, i) => {
+      if (c.rsiSignal === 'BUY' || c.stochSignal === 'BUY') return [i, rsiArr[i]];
+      return null;
+    }).filter(Boolean);
+    const sellS = cands.map((c, i) => {
+      if (c.rsiSignal === 'SELL' || c.stochSignal === 'SELL') return [i, rsiArr[i]];
+      return null;
+    }).filter(Boolean);
 
     chart.setOption({
       backgroundColor: 'transparent',
@@ -568,16 +579,18 @@ const Charts = (() => {
           markArea: {
             silent: true,
             data: [
-              [{ yAxis: 0 }, { yAxis: 20 }],
-              [{ yAxis: 80 }, { yAxis: 100 }],
+              [{ yAxis: 0 }, { yAxis: rsiOS }],
+              [{ yAxis: rsiOB }, { yAxis: 100 }],
             ],
             itemStyle: { color: 'rgba(239,68,68,0.07)' },
           },
           markLine: {
             silent: true, symbol: 'none',
             data: [
-              { yAxis: 20, name: '과매도', lineStyle: { color: '#ef4444', type: 'dashed', width: 1 }, label: { show: true, formatter: '20', position: 'insideEndBottom', color: '#ef4444', fontSize: 9 } },
-              { yAxis: 80, name: '과매수', lineStyle: { color: '#f97316', type: 'dashed', width: 1 }, label: { show: true, formatter: '80', position: 'insideEndTop', color: '#f97316', fontSize: 9 } },
+              { yAxis: rsiOS, name: 'RSI과매도', lineStyle: { color: '#ef4444', type: 'dashed', width: 1 }, label: { show: true, formatter: 'R:' + String(rsiOS), position: 'insideEndBottom', color: '#ef4444', fontSize: 9 } },
+              { yAxis: rsiOB, name: 'RSI과매수', lineStyle: { color: '#f97316', type: 'dashed', width: 1 }, label: { show: true, formatter: 'R:' + String(rsiOB), position: 'insideEndTop', color: '#f97316', fontSize: 9 } },
+              { yAxis: stochOS, name: 'ST과매도', lineStyle: { color: '#fbbf24', type: 'dotted', width: 1 }, label: { show: true, formatter: 'ST:' + String(stochOS), position: 'insideEndBottom', color: '#fbbf24', fontSize: 9 } },
+              { yAxis: stochOB, name: 'ST과매수', lineStyle: { color: '#fbbf24', type: 'dotted', width: 1 }, label: { show: true, formatter: 'ST:' + String(stochOB), position: 'insideEndTop', color: '#fbbf24', fontSize: 9 } },
             ],
           },
         },
