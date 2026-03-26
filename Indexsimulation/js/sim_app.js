@@ -482,6 +482,8 @@ async function runOptimization(codes) {
   document.getElementById('btnRunSim').disabled = true;
   document.getElementById('btnTodayScan').disabled = true;
   
+  SimState.simStarted = true; // 🚀 시뮬레이션 시작 플래그 활성화 (리스트 렌더링용)
+  
   // 🚀 [Auto-Loader] 데이터가 없는 종목 식별 및 일괄 보충
   const missing = codes.filter(c => {
     const d = SimState.watchData[c];
