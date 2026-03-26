@@ -433,7 +433,7 @@ const Charts = (() => {
    * EOM 서브차트
    * 구성: EOM 선(파랑) + Signal 선(오렌지) + 0선(점선) + 히스토그램 + 매매신호 마커
    */
-  function renderEOM(domId, data, simResult, simPeriodMonths) {
+  function renderEOM(domId, data, simResult, simPeriodMonths, highlightIndex = -1) {
     const dom = document.getElementById(domId);
     if (!dom) return;
     if (_instances[domId]) _instances[domId].dispose();
@@ -454,6 +454,19 @@ const Charts = (() => {
     // 🚀 지표 차트는 시뮬레이션 결과와 관계없이 항상 "순수 지표 신호"만 표시
     const buyScatter = cands.map((c, i) => c.eomCross === 'BUY' ? [i, c.eom] : null).filter(Boolean);
     const sellScatter = cands.map((c, i) => c.eomCross === 'SELL' ? [i, c.eom] : null).filter(Boolean);
+
+    // 🚀 하이라이트 매수/매도 (매매 이력 클릭 시)
+    const highlightBuy = [];
+    const highlightSell = [];
+    if (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]) {
+      const t = simResult.trades[highlightIndex];
+      const bIdx = dates.indexOf(t.buyDate);
+      if (bIdx !== -1) highlightBuy.push([bIdx, eomArr[bIdx]]);
+      if (!t.isOpen && t.exitDate) {
+        const sIdx = dates.indexOf(t.exitDate);
+        if (sIdx !== -1) highlightSell.push([sIdx, eomArr[sIdx]]);
+      }
+    }
 
     chart.setOption({
       backgroundColor: 'transparent',
@@ -514,6 +527,21 @@ const Charts = (() => {
           label: { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
+        // 🚀 하이라이트 포인트
+        {
+          name: 'S_HIGHLIGHT_IN', type: 'scatter', data: highlightBuy,
+          symbol: 'circle', symbolSize: 18,
+          itemStyle: { color: 'rgba(239,68,68,0.3)', borderColor: '#fff', borderWidth: 2 },
+          label: { show: true, formatter: 'In', color: '#fff', fontSize: 10, fontWeight: 800 },
+          z: 10,
+        },
+        {
+          name: 'S_HIGHLIGHT_OUT', type: 'scatter', data: highlightSell,
+          symbol: 'circle', symbolSize: 18,
+          itemStyle: { color: 'rgba(96,165,250,0.3)', borderColor: '#fff', borderWidth: 2 },
+          label: { show: true, formatter: 'Out', color: '#fff', fontSize: 10, fontWeight: 800 },
+          z: 10,
+        },
       ],
     });
     window.addEventListener('resize', () => { try { chart.resize(); } catch { } });
@@ -522,7 +550,7 @@ const Charts = (() => {
   /**
    * RSI + Stochastic 서브차트
    */
-  function renderRSIStoch(domId, data, simResult, simPeriodMonths, rsiOB = 70, rsiOS = 30, stochOB = 80, stochOS = 20) {
+  function renderRSIStoch(domId, data, simResult, simPeriodMonths, rsiOB = 70, rsiOS = 30, stochOB = 80, stochOS = 20, highlightIndex = -1) {
     const dom = document.getElementById(domId);
     if (!dom) return;
     if (_instances[domId]) _instances[domId].dispose();
@@ -551,6 +579,19 @@ const Charts = (() => {
       if (c.rsiSignal === 'SELL' || c.stochSignal === 'SELL') return [i, rsiArr[i]];
       return null;
     }).filter(Boolean);
+
+    // 🚀 하이라이트 매수/매도 (매매 이력 클릭 시)
+    const highlightBuy = [];
+    const highlightSell = [];
+    if (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]) {
+      const t = simResult.trades[highlightIndex];
+      const bIdx = dates.indexOf(t.buyDate);
+      if (bIdx !== -1) highlightBuy.push([bIdx, rsiArr[bIdx]]); // RSI선 위에 하이라이트
+      if (!t.isOpen && t.exitDate) {
+        const sIdx = dates.indexOf(t.exitDate);
+        if (sIdx !== -1) highlightSell.push([sIdx, rsiArr[sIdx]]);
+      }
+    }
 
     chart.setOption({
       backgroundColor: 'transparent',
@@ -625,6 +666,21 @@ const Charts = (() => {
             offset: [0, -2] // 🚀 매도는 지표선 위로 살짝 올림
           },
           z: 5,
+        },
+        // 🚀 하이라이트 포인트
+        {
+          name: 'S_HIGHLIGHT_IN', type: 'scatter', data: highlightBuy,
+          symbol: 'circle', symbolSize: 18,
+          itemStyle: { color: 'rgba(239,68,68,0.3)', borderColor: '#fff', borderWidth: 2 },
+          label: { show: true, formatter: 'In', color: '#fff', fontSize: 10, fontWeight: 800 },
+          z: 10,
+        },
+        {
+          name: 'S_HIGHLIGHT_OUT', type: 'scatter', data: highlightSell,
+          symbol: 'circle', symbolSize: 18,
+          itemStyle: { color: 'rgba(96,165,250,0.3)', borderColor: '#fff', borderWidth: 2 },
+          label: { show: true, formatter: 'Out', color: '#fff', fontSize: 10, fontWeight: 800 },
+          z: 10,
         },
       ],
     });

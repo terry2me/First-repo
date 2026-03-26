@@ -3206,8 +3206,8 @@ function renderSimHistory(trades) {
         // 🚀 키 불일치 방지: previewCode를 우선 참조하여 타점 증발 방지
         const simRes = SimState.simResults[SimState.previewCode] || SimState.simResults[data.code];
         Charts.renderMini('previewChart', data, simRes, SimState.simPeriodMonths, idx);
-        Charts.renderEOM('eomChart', data, simRes, SimState.simPeriodMonths);
-        Charts.renderRSIStoch('rsiStochChart', data, simRes, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS);
+        Charts.renderEOM('eomChart', data, simRes, SimState.simPeriodMonths, idx); // 🚀 하이라이트 인덱스 추가
+        Charts.renderRSIStoch('rsiStochChart', data, simRes, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS, idx); // 🚀 하이라이트 인덱스 추가
       }
     });
 
