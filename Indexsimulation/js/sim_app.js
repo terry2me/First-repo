@@ -2077,11 +2077,12 @@ function _calculateTotalSim(data) {
       trades.push({
         sigDate,
         buyDate,
-        buyIdx, // 🚀 리스크 지표 계산용 추가
+        buyPrice, // 🚀 실제 매수가 필드 복구 (보유 수익률 계산용)
+        buyIdx,
         exitDate,
         exitPrice,
         exitReason,
-        exitIdx: actualExitIdx, // 🚀 리스크 지표 계산용 추가
+        exitIdx: actualExitIdx,
         pnl: tradePnlPct,
         isOpen,
         reason: reasonStr
@@ -2538,7 +2539,8 @@ function _refreshListItem(code) {
   // 시뮬레이션 결과 갱신
   const sim = SimState.simResults[code];
   const countEl = el.querySelector('.col-sim-count');
-  if (countEl) countEl.textContent = sim ? `${sim.success}/${sim.total}` : '--';
+  if (countEl) countEl.innerHTML = sim ? `${sim.success}/${sim.total}${SimState.todayMode && sim.todaySignal ? `<div style="font-size:9px; color:var(--accent); margin-top:1px;">${sim.todaySignal}</div>` : ''}` : '--';
+  
   const pnlEl = el.querySelector('.col-sim-pnl');
   if (pnlEl) {
     const pnl = sim?.pnl ?? 0;
@@ -2558,6 +2560,16 @@ function _refreshListItem(code) {
     diffEl.className = `col-item col-sim-diff ${sim && sim.total > 0 ? (diff >= 0 ? 'up' : 'down') : ''}`;
     diffEl.style.fontWeight = '700';
   }
+
+  // 🚀 리스크 지표 추가 갱신
+  const mddEl = el.querySelector('.col-sim-mdd');
+  if (mddEl) mddEl.textContent = sim ? `${Math.round(sim.mdd || 0)}%` : '--';
+  const shaEl = el.querySelector('.col-sim-sha');
+  if (shaEl) shaEl.textContent = sim ? (sim.sharpe || 0).toFixed(2) : '--';
+  const stnEl = el.querySelector('.col-sim-stn');
+  if (stnEl) stnEl.textContent = sim ? (sim.sortino || 0).toFixed(2) : '--';
+  const rmdEl = el.querySelector('.col-sim-rmd');
+  if (rmdEl) rmdEl.textContent = sim ? (sim.romad || 0).toFixed(2) : '--';
 }
 
 /* ══════════════════════════════════════════════
