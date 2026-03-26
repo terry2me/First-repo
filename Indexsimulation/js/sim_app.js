@@ -535,18 +535,57 @@ async function runOptimization(codes) {
   codes.forEach(code => {
     const b = bests[code];
     if (b.idx !== -1) {
-      found = true; const combo = packed.combos[b.idx];
-      SimState.optResults[code] = combo;
+      found = true;
+      // 🚀 1단계: 벡터 엔진이 찾은 최적 콤보를 복사
+      const rawCombo = { ...packed.combos[b.idx] };
+
+      // 🚀 2단계: 실제 매매 이력 생성으로 검증
       const backup = { ...SimState };
-      Object.assign(SimState, combo);
+      Object.assign(SimState, rawCombo);
+      SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
+      const detailResult = _calculateTotalSim(SimState.watchData[code]);
+      Object.assign(SimState, backup);
+
+      // 🚀 3단계: 한 번도 발동하지 않은 지표 제거 (노이즈 정리)
+      const cleanCombo = { ...rawCombo };
+      if (detailResult && detailResult.trades && detailResult.trades.length > 0) {
+        // 실제 청산 사유 수집
+        const exitReasons = new Set(detailResult.trades.map(t => t.exitReason).filter(Boolean));
+        // 실제 진입 사유 수집 (BB+EOM+RSI+ST 파싱)
+        const entryParts = new Set(
+          detailResult.trades
+            .map(t => t.reason || '')
+            .flatMap(r => r.replace('(In)', '').replace('(대기)', '').split('+'))
+            .filter(Boolean)
+        );
+
+        // 매도 지표: 한 번도 청산을 실행하지 않은 지표는 OFF
+        if (cleanCombo.sellRSIActive && !exitReasons.has('RSI매도')) cleanCombo.sellRSIActive = false;
+        if (cleanCombo.sellSTOCHActive && !exitReasons.has('ST매도')) cleanCombo.sellSTOCHActive = false;
+        if (cleanCombo.sellEOMActive && !exitReasons.has('EOM매도')) cleanCombo.sellEOMActive = false;
+        if (cleanCombo.bbTrackingSellActive && !exitReasons.has('상단이탈') && !exitReasons.has('중단이탈')) {
+          cleanCombo.bbTrackingSellActive = false;
+        }
+
+        // 매수 지표 (opt): 한 번도 진입에 기여하지 않은 선택형 지표는 OFF
+        if (cleanCombo.rsiFilterActive && cleanCombo.rsiReq === 'opt' && !entryParts.has('RSI')) cleanCombo.rsiFilterActive = false;
+        if (cleanCombo.stochFilterActive && cleanCombo.stochReq === 'opt' && !entryParts.has('ST')) cleanCombo.stochFilterActive = false;
+        if (cleanCombo.eomFilterActive && cleanCombo.eomReq === 'opt' && !entryParts.has('EOM')) cleanCombo.eomFilterActive = false;
+        if (cleanCombo.bbFilterActive && cleanCombo.bbReq === 'opt' && !entryParts.has('BB')) cleanCombo.bbFilterActive = false;
+      }
+
+      // 🚀 4단계: 정제된 콤보로 최종 저장
+      SimState.optResults[code] = cleanCombo;
+      const backup2 = { ...SimState };
+      Object.assign(SimState, cleanCombo);
       SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
       SimState.simResults[code] = _calculateTotalSim(SimState.watchData[code]);
-      Object.assign(SimState, backup);
+      Object.assign(SimState, backup2);
     }
   });
   if (found) {
     const firstCode = codes.find(c => bests[c].idx !== -1);
-    const best = packed.combos[bests[firstCode].idx];
+    const best = SimState.optResults[firstCode]; // 🚀 정제된 콤보 사용
     Object.assign(SimState, best);
     SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
     syncUIToState(best); _markSimDirty(true); showStockPreview(firstCode);
