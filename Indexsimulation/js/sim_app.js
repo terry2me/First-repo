@@ -2077,10 +2077,11 @@ function _calculateTotalSim(data) {
       trades.push({
         sigDate,
         buyDate,
-        buyPrice,
+        buyIdx, // 🚀 리스크 지표 계산용 추가
         exitDate,
         exitPrice,
         exitReason,
+        exitIdx: actualExitIdx, // 🚀 리스크 지표 계산용 추가
         pnl: tradePnlPct,
         isOpen,
         reason: reasonStr
@@ -2095,15 +2096,82 @@ function _calculateTotalSim(data) {
   const buyAndHoldPnl = firstBuyPrice !== null ? ((lastPrice - firstBuyPrice) / firstBuyPrice) * 100 : 0;
   const compoundedPnl = (compoundMulti - 1) * 100;
 
+  // 🚀 리스크 지표(MDD, Sharpe, Sortino) 계산을 위한 일별 자산곡선 생성
+  const equityCurve = new Float32Array(totalDays).fill(1.0);
+  const dailyReturns = [];
+  let currentComp = 1.0;
+
+  trades.forEach(t => {
+    const start = t.buyIdx;
+    const end = t.exitIdx;
+    if (start === -1 || start >= totalDays) return;
+    
+    // 매수 시점의 기초가 (익일매수라면 buyIdx의 시가/종가)
+    const basePrice = candles[start][SimState.bbBuyPriceType] || candles[start].close;
+    if (basePrice <= 0) return;
+
+    for (let i = start; i <= end; i++) {
+      if (!candles[i]) break;
+      const dayPrice = candles[i].close;
+      const tradeDayReturn = (dayPrice - basePrice) / basePrice;
+      equityCurve[i] = currentComp * (1 + tradeDayReturn);
+      
+      // 일별 변동성 계산을 위한 수익률 수집 (보유 중인 날만)
+      if (i > start) {
+        const prevDayPrice = candles[i-1].close;
+        const dRet = (dayPrice - prevDayPrice) / prevDayPrice;
+        dailyReturns.push(dRet);
+      }
+    }
+    // 다음 매매를 위해 현재까지의 확정 복리 수익률 업데이트
+    const exitPriceFinal = candles[end][SimState.bbSellPriceType] || candles[end].close;
+    currentComp *= (1 + (exitPriceFinal - basePrice) / basePrice);
+  });
+
+  // 보유하지 않은 날은 직전 자산 가치 유지
+  for (let i = 1; i < totalDays; i++) {
+    if (equityCurve[i] === 1.0 && equityCurve[i-1] !== 1.0) {
+      equityCurve[i] = equityCurve[i-1];
+    }
+  }
+
+  // MDD 계산
+  let peak = -Infinity;
+  let maxDdown = 0;
+  for (let i = 0; i < totalDays; i++) {
+    if (equityCurve[i] > peak) peak = equityCurve[i];
+    const ddown = (equityCurve[i] - peak) / peak;
+    if (ddown < maxDdown) maxDdown = ddown;
+  }
+
+  // Sharpe / Sortino 계산
+  let sharpe = 0;
+  let sortino = 0;
+  if (dailyReturns.length > 5) {
+    const avgRet = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length;
+    const stdDev = Math.sqrt(dailyReturns.reduce((a, b) => a + Math.pow(b - avgRet, 2), 0) / dailyReturns.length);
+    const downsideDev = Math.sqrt(dailyReturns.filter(r => r < 0).reduce((a, b) => a + Math.pow(b, 2), 0) / dailyReturns.length);
+    
+    if (stdDev > 0) sharpe = (avgRet / stdDev) * Math.sqrt(252);
+    if (downsideDev > 0) sortino = (avgRet / downsideDev) * Math.sqrt(252);
+  }
+
+  const resultCompounded = (compoundMulti - 1) * 100; // 변수명 충돌 회피
+  const romad = Math.abs(maxDdown) > 0 ? (resultCompounded / (Math.abs(maxDdown) * 100)) : 0;
+
   return {
     success: successCount,
     total: totalSignals,
     winRate: totalSignals > 0 ? (successCount / totalSignals * 100) : 0,
-    pnl: compoundedPnl,
+    pnl: resultCompounded,
     buyAndHoldPnl,
-    diffPnl: compoundedPnl - buyAndHoldPnl,
+    diffPnl: resultCompounded - buyAndHoldPnl,
     pnlAvg,
     trades,
+    mdd: maxDdown * 100,
+    sharpe,
+    sortino,
+    romad,
     lastSignalDate: trades.length > 0 ? trades[trades.length - 1].buyDate : null
   };
 }
@@ -2373,10 +2441,14 @@ function buildListItem(stock, data, rowNum, isPinned) {
       <div class="col-name" style="flex: 1; min-width: 0; padding-left: 4px;">
         <span class="item-name">${data?.name || stock.name || stock.code}</span>
       </div>
-      <div class="col-item col-sim-count" style="min-width: 50px;">${simCountStr}</div>
-      <div class="col-item col-sim-diff ${diffClass}" style="min-width: 50px; font-weight: 700;">${simDiffStr}</div>
-      <div class="col-item col-sim-pnl ${pnlClass}" style="min-width: 50px;">${simPnlStr}</div>
-      <div class="col-item col-sim-bh ${bhClass}" style="min-width: 50px;">${simBHStr}</div>`;
+      <div class="col-item col-sim-count" style="min-width: 44px;">${simCountStr}</div>
+      <div class="col-item col-sim-diff ${diffClass}" style="min-width: 40px; font-weight: 700;">${simDiffStr}</div>
+      <div class="col-item col-sim-pnl ${pnlClass}" style="min-width: 40px;">${simPnlStr}</div>
+      <div class="col-item col-sim-bh ${bhClass}" style="min-width: 40px;">${simBHStr}</div>
+      <div class="col-item col-sim-mdd down" style="min-width: 40px;">${Math.round(res.mdd || 0)}%</div>
+      <div class="col-item col-sim-sha" style="min-width: 36px; color:var(--text-secondary);">${(res.sharpe || 0).toFixed(2)}</div>
+      <div class="col-item col-sim-stn" style="min-width: 36px; color:var(--text-secondary);">${(res.sortino || 0).toFixed(2)}</div>
+      <div class="col-item col-sim-rmd" style="min-width: 36px; color:var(--accent); font-weight:600;">${(res.romad || 0).toFixed(2)}</div>`;
   } else {
     // 결과 없을 때 기본값
     item.innerHTML = `
@@ -2384,10 +2456,14 @@ function buildListItem(stock, data, rowNum, isPinned) {
       <div class="col-name" style="flex: 1; min-width: 0; padding-left: 4px;">
         <span class="item-name">${data?.name || stock.name || stock.code}</span>
       </div>
-      <div class="col-item col-sim-count" style="min-width: 50px;">--</div>
-      <div class="col-item col-sim-diff" style="min-width: 50px;">--</div>
-      <div class="col-item col-sim-pnl" style="min-width: 50px;">--</div>
-      <div class="col-item col-sim-bh" style="min-width: 50px;">--</div>`;
+      <div class="col-item col-sim-count" style="min-width: 44px;">--</div>
+      <div class="col-item col-sim-diff" style="min-width: 40px;">--</div>
+      <div class="col-item col-sim-pnl" style="min-width: 40px;">--</div>
+      <div class="col-item col-sim-bh" style="min-width: 40px;">--</div>
+      <div class="col-item col-sim-mdd" style="min-width: 40px;">--</div>
+      <div class="col-item col-sim-sha" style="min-width: 36px;">--</div>
+      <div class="col-item col-sim-stn" style="min-width: 36px;">--</div>
+      <div class="col-item col-sim-rmd" style="min-width: 36px;">--</div>`;
   }
 
   item.addEventListener('click', e => {
@@ -2522,6 +2598,10 @@ function sortList(list, col, dir) {
       case 'simDiff': va = ra?.diffPnl ?? -Infinity; vb = rb?.diffPnl ?? -Infinity; break;
       case 'simPnl': va = ra?.pnl ?? -Infinity; vb = rb?.pnl ?? -Infinity; break;
       case 'simBH': va = ra?.buyAndHoldPnl ?? -Infinity; vb = rb?.buyAndHoldPnl ?? -Infinity; break;
+      case 'simMDD': va = ra?.mdd ?? 0; vb = rb?.mdd ?? 0; break;
+      case 'simSHA': va = ra?.sharpe ?? -Infinity; vb = rb?.sharpe ?? -Infinity; break;
+      case 'simSTN': va = ra?.sortino ?? -Infinity; vb = rb?.sortino ?? -Infinity; break;
+      case 'simRMD': va = ra?.romad ?? -Infinity; vb = rb?.romad ?? -Infinity; break;
       case 'simAvgPnl': va = ra?.pnlAvg ?? -Infinity; vb = rb?.pnlAvg ?? -Infinity; break;
       case 'simLastDate': va = ra?.lastSignalDate ?? ''; vb = rb?.lastSignalDate ?? ''; break;
       // ── 레거시 컬럼 (다른 탭과 공유되는 sortList 호환) ──
