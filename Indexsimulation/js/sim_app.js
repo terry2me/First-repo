@@ -1852,10 +1852,16 @@ function _calculateTotalSim(data) {
       // 🚀 핵심 수정: 내일자 캔들이 없는 오늘자(Today) '익일 매수' 신호 누락 방지 (대기 상태로 기록)
       if (!candles[buyIdx]) {
         const reasons = [];
-        if (SimState.bbFilterActive) reasons.push('BB');
-        if (SimState.eomFilterActive) reasons.push('EOM');
-        if (SimState.rsiFilterActive) reasons.push('RSI');
-        if (SimState.stochFilterActive) reasons.push('ST');
+        if (SimState.bbFilterActive && bbOk) reasons.push('BB');
+        if (SimState.eomFilterActive && eomOk) reasons.push('EOM');
+        if (SimState.rsiFilterActive && rsiOk) reasons.push('RSI');
+        if (SimState.stochFilterActive && stochOk) reasons.push('ST');
+        if (reasons.length === 0) {
+          if (SimState.bbFilterActive) reasons.push('BB');
+          if (SimState.eomFilterActive) reasons.push('EOM');
+          if (SimState.rsiFilterActive) reasons.push('RSI');
+          if (SimState.stochFilterActive) reasons.push('ST');
+        }
         
         trades.push({
           sigDate,
@@ -2014,11 +2020,19 @@ function _calculateTotalSim(data) {
       cumulativePnl += tradePnlPct;
       compoundMulti *= (1 + tradePnlPct / 100);
 
+      // 🚀 실제 발동된 지표만 표시 (단순 활성화 여부가 아닌 신호 발동 여부 기준)
       const reasons = [];
-      if (SimState.bbFilterActive) reasons.push('BB');
-      if (SimState.eomFilterActive) reasons.push('EOM');
-      if (SimState.rsiFilterActive) reasons.push('RSI');
-      if (SimState.stochFilterActive) reasons.push('ST');
+      if (SimState.bbFilterActive && bbOk) reasons.push('BB');
+      if (SimState.eomFilterActive && eomOk) reasons.push('EOM');
+      if (SimState.rsiFilterActive && rsiOk) reasons.push('RSI');
+      if (SimState.stochFilterActive && stochOk) reasons.push('ST');
+      // 모두 false인 경우 (opt 조건 충족 등)는 활성 필터를 폴백으로 표시
+      if (reasons.length === 0) {
+        if (SimState.bbFilterActive) reasons.push('BB');
+        if (SimState.eomFilterActive) reasons.push('EOM');
+        if (SimState.rsiFilterActive) reasons.push('RSI');
+        if (SimState.stochFilterActive) reasons.push('ST');
+      }
       const reasonStr = (reasons.length > 0 ? reasons.join('+') : '시그널') + '(In)';
 
       trades.push({
