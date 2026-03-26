@@ -481,6 +481,26 @@ async function runOptimization(codes) {
   btn.disabled = true;
   document.getElementById('btnRunSim').disabled = true;
   document.getElementById('btnTodayScan').disabled = true;
+  
+  // 🚀 [Auto-Loader] 데이터가 없는 종목 식별 및 일괄 보충
+  const missing = codes.filter(c => {
+    const d = SimState.watchData[c];
+    return !d || !d.candlesWithBB || d.candlesWithBB.length === 0;
+  });
+  if (missing.length > 0) {
+    btn.textContent = `데이터 수집 (${missing.length})...`;
+    try {
+      const stocksToFetch = missing.map(c => ({ code: c }));
+      await API.fetchBatch(stocksToFetch, SimState.candleCount, SimState.listInterval, (code, res) => {
+        if (res) {
+          SimState.watchData[code] = Indicators.analyzeAll(res, 20, _getIndicatorOpts());
+        }
+      });
+    } catch (e) {
+      console.warn('데이터 수집 중 오류:', e);
+    }
+  }
+
   const originalState = { ...SimState };
   SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
   SimState.optResults = {};
