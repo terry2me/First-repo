@@ -213,6 +213,7 @@ function showGlobalLoading(show) {
 ══════════════════════════════════════════════ */
 function showToast(msg, type = 'info') {
   const c = document.getElementById('toastContainer');
+  if (!c) return;
   const t = document.createElement('div');
   t.className = `toast toast-${type}`;
   const icons = {
@@ -227,7 +228,6 @@ function showToast(msg, type = 'info') {
   c.appendChild(t);
   requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('toast-show')));
 
-  // 정상 종료(success, info)인 경우 3초 후 자동 닫기
   if (type === 'success' || type === 'info') {
     setTimeout(() => {
       if (t.parentElement) {
@@ -238,41 +238,35 @@ function showToast(msg, type = 'info') {
   }
 }
 
-/* ══════════════════════════════════════════════
-   시뮬 파라미터 변경 → 재실행 유도 (Dirty 플래그)
-══════════════════════════════════════════════ */
 function _markSimDirty(keepOptResults = false) {
   if (!SimState.simStarted) return;
+  if (!keepOptResults) SimState.optResults = {};
 
-  // 사용자가 수동으로 체크박스나 설정을 바꾼 경우: 최적화 보호막(메모장) 강제 해제
-  if (!keepOptResults) {
-    SimState.optResults = {};
-  }
-
-  // 🚀 핵심: 설정이 바뀌면 이미 로드된 데이터를 기반으로 즉시 시뮬레이션 재계산
   Object.keys(SimState.watchData).forEach(code => {
-    // 🚀 1등 최적조건을 획득한 종목은, 현재 UI(타 종목 스위치) 상태와 무관하게 1등 성적표를 리스트에 영구 고정
-    if (SimState.optResults && SimState.optResults[code]) {
-      // 이 종목은 현재 UI 설정 대신, 자신이 찾아낸 1등 전략(simResults에 보관중)을 계속 보여줌
+    const opt = SimState.optResults[code];
+    if (opt) {
+      // 최적화된 종목은 저장된 '전용 공식'으로 재계산 (현재 전역 SimState 설정 무시)
+      const backup = { ...SimState };
+      Object.assign(SimState, opt);
+      // 고정값 강제 (최적화 당시 기준 유지)
+      SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
+      SimState.simResults[code] = _calculateTotalSim(SimState.watchData[code]);
+      Object.assign(SimState, backup);
     } else {
+      // 일반 종목은 현재 UI(전역 SimState) 설정대로 계산
       SimState.simResults[code] = _calculateTotalSim(SimState.watchData[code]);
     }
   });
 
   renderList();
-
-  // 현재 선택된 종목이 있다면 미리보기 차트도 즉시 갱신
-  if (SimState.previewCode) {
-    showStockPreview(SimState.previewCode);
-  }
+  if (SimState.previewCode) showStockPreview(SimState.previewCode);
 
   if (SimState.simDirty) return;
   SimState.simDirty = true;
   const btn = document.getElementById('btnRunSim');
   if (btn) {
     btn.style.background = '#7c2d12';
-    btn.style.boxShadow = 'none';
-    btn.innerHTML = '다시 실행 필요';
+    btn.innerHTML = '다시 실행';
   }
 }
 
@@ -281,14 +275,10 @@ function _clearSimDirty() {
   const btn = document.getElementById('btnRunSim');
   if (btn) {
     btn.style.background = '';
-    btn.style.boxShadow = '';
     btn.innerHTML = '시작';
   }
 }
 
-/* ══════════════════════════════════════════════
-   최적조건(Optimization) 비동기 탐색 모듈
-══════════════════════════════════════════════ */
 function* generateCombos() {
   const signalWindows = [1, 2, 3];
   const buyTimes = ['today', 'next'];
@@ -339,113 +329,210 @@ function* generateCombos() {
   }
 }
 
+function _packScenarios() {
+  const combos = [...generateCombos()];
+  const n = combos.length;
+  const packed = {
+    count: n, combos: combos,
+    sw: new Uint8Array(n), bt: new Uint8Array(n), st: new Uint8Array(n),
+    bbS: new Uint8Array(n), bbBase: new Uint8Array(n), bbDir: new Uint8Array(n),
+    rsiS: new Uint8Array(n), stS: new Uint8Array(n), eomS: new Uint8Array(n),
+    sBB: new Uint8Array(n), sRSI: new Uint8Array(n), sST: new Uint8Array(n), sEOM: new Uint8Array(n)
+  };
+  const stateMap = { 'off':0, 'req':1, 'opt':2 };
+  combos.forEach((c, i) => {
+    packed.sw[i] = c.simSignalWindow;
+    packed.bt[i] = (c.simBuyTiming === 'today' ? 0 : 1);
+    packed.st[i] = (c.simSellTiming === 'today' ? 0 : 1);
+    packed.bbS[i] = c.bbFilterActive ? (stateMap[c.bbReq] || 0) : 0;
+    packed.bbBase[i] = (c.bbBase === 'lower' ? 0 : 1);
+    if (c.bbCrossDown && c.bbCrossUp) packed.bbDir[i] = 3;
+    else if (c.bbCrossUp) packed.bbDir[i] = 2; else packed.bbDir[i] = 1;
+    packed.rsiS[i] = c.rsiFilterActive ? stateMap[c.rsiReq] : 0;
+    packed.stS[i] = c.stochFilterActive ? stateMap[c.stochReq] : 0;
+    packed.eomS[i] = c.eomFilterActive ? stateMap[c.eomReq] : 0;
+    packed.sBB[i] = c.bbTrackingSellActive ? 1 : 0;
+    packed.sRSI[i] = c.sellRSIActive ? 1 : 0;
+    packed.sST[i] = c.sellSTOCHActive ? 1 : 0;
+    packed.sEOM[i] = c.sellEOMActive ? 1 : 0;
+  });
+  return packed;
+}
+
+function _runVectorizedSimulation(data, packed) {
+  if (!data || !data.candlesWithBB) return null;
+  const candles = data.candlesWithBB;
+  const T = candles.length;
+  const n = packed.count;
+  const lastPrice = candles[T-1].close;
+  const startDate = new Date(candles[T-1].date);
+  startDate.setMonth(startDate.getMonth() - SimState.simPeriodMonths);
+
+  let startIdx = 0;
+  for (let i = 0; i < T; i++) {
+    if (new Date(candles[i].date) >= startDate) { startIdx = i; break; }
+  }
+
+  const bbLD = new Uint8Array(T), bbLU = new Uint8Array(T), bbMD = new Uint8Array(T), bbMU = new Uint8Array(T);
+  const rB = new Uint8Array(T), sB = new Uint8Array(T), eB = new Uint8Array(T);
+  const rS = new Uint8Array(T), sS = new Uint8Array(T), eS = new Uint8Array(T);
+
+  for (let t = 1; t < T; t++) {
+    const c = candles[t], p = candles[t-1];
+    const buyP = c[SimState.bbBuyPriceType] || c.close;
+    const pBuyP = p[SimState.bbBuyPriceType] || p.close;
+    if (p.bbLower !== null && c.bbLower !== null) {
+      if (pBuyP > p.bbLower && buyP <= c.bbLower) bbLD[t] = 1;
+      if (pBuyP < p.bbLower && buyP >= c.bbLower) bbLU[t] = 1;
+    }
+    if (p.bbMiddle !== null && c.bbMiddle !== null) {
+      if (pBuyP > p.bbMiddle && buyP <= c.bbMiddle) bbMD[t] = 1;
+      if (pBuyP < p.bbMiddle && buyP >= c.bbMiddle) bbMU[t] = 1;
+    }
+    if (c.rsiSignal === 'BUY') rB[t] = 1; if (c.rsiSignal === 'SELL') rS[t] = 1;
+    if (c.stochSignal === 'BUY') sB[t] = 1; if (c.stochSignal === 'SELL') sS[t] = 1;
+    if (c.eomCross === 'BUY') eB[t] = 1; if (c.eomCross === 'SELL') eS[t] = 1;
+  }
+
+  const winS = {
+    ld:[null,new Uint8Array(T),new Uint8Array(T),new Uint8Array(T)],
+    lu:[null,new Uint8Array(T),new Uint8Array(T),new Uint8Array(T)],
+    md:[null,new Uint8Array(T),new Uint8Array(T),new Uint8Array(T)],
+    mu:[null,new Uint8Array(T),new Uint8Array(T),new Uint8Array(T)],
+    r:[null,new Uint8Array(T),new Uint8Array(T),new Uint8Array(T)],
+    s:[null,new Uint8Array(T),new Uint8Array(T),new Uint8Array(T)],
+    e:[null,new Uint8Array(T),new Uint8Array(T),new Uint8Array(T)]
+  };
+  for (let sw = 1; sw <= 3; sw++) {
+    for (let t = 0; t < T; t++) {
+      for (let k = 0; k < sw; k++) {
+        const idx = t - k; if (idx < 0) break;
+        if (bbLD[idx]) winS.ld[sw][t] = 1; if (bbLU[idx]) winS.lu[sw][t] = 1;
+        if (bbMD[idx]) winS.md[sw][t] = 1; if (bbMU[idx]) winS.mu[sw][t] = 1;
+        if (rB[idx]) winS.r[sw][t] = 1; if (sB[idx]) winS.s[sw][t] = 1; if (eB[idx]) winS.e[sw][t] = 1;
+      }
+    }
+  }
+
+  const isHolding = new Uint8Array(n), buyPrice = new Float32Array(n), buyIdx = new Int32Array(n).fill(-1);
+  const mLevel = new Uint8Array(n), multi = new Float32Array(n).fill(1.0);
+  const sigs = new Uint32Array(n), succs = new Uint32Array(n), nextIdx = new Int32Array(n).fill(startIdx);
+  const firstP = new Float32Array(n).fill(-1);
+
+  for (let t = startIdx; t < T; t++) {
+    const curC = candles[t], sPrice = curC[SimState.bbSellPriceType] || curC.close;
+    const midB = curC.bbMiddle, upB = curC.bbUpper;
+    for (let c = 0; c < n; c++) {
+      if (t < nextIdx[c]) continue;
+      if (isHolding[c] === 0) {
+        const sw = packed.sw[c], bbS = packed.bbS[c], rsiS = packed.rsiS[c], stS = packed.stS[c], eomS = packed.eomS[c];
+        let bbOk = (bbS === 0);
+        if (bbS > 0) {
+          const base = packed.bbBase[c], dir = packed.bbDir[c];
+          if (base === 0) {
+            if ((dir & 1 && winS.ld[sw][t]) || (dir & 2 && winS.lu[sw][t])) bbOk = true;
+          } else {
+            if ((dir & 1 && winS.md[sw][t]) || (dir & 2 && winS.mu[sw][t])) bbOk = true;
+          }
+        }
+        let reqOk = true, optActive = false, optOk = false;
+        if (bbS === 1 && !bbOk) reqOk = false; else if (bbS === 2) { optActive = true; if (bbOk) optOk = true; }
+        if (rsiS === 1 && !winS.r[sw][t]) reqOk = false; else if (rsiS === 2) { optActive = true; if (winS.r[sw][t]) optOk = true; }
+        if (stS === 1 && !winS.s[sw][t]) reqOk = false; else if (stS === 2) { optActive = true; if (winS.s[sw][t]) optOk = true; }
+        if (eomS === 1 && !winS.e[sw][t]) reqOk = false; else if (eomS === 2) { optActive = true; if (winS.e[sw][t]) optOk = true; }
+
+        if (reqOk && (optActive ? optOk : true)) {
+          const bIdx = (packed.bt[c] === 0 ? t : t + 1);
+          if (bIdx < T) {
+            isHolding[c] = 1; buyIdx[c] = bIdx; mLevel[c] = 0;
+            buyPrice[c] = candles[bIdx][SimState.bbBuyPriceType] || candles[bIdx].close;
+            if (firstP[c] === -1) firstP[c] = buyPrice[c];
+          }
+        }
+      } else {
+        if (t <= buyIdx[c]) continue;
+        let exit = false;
+        if (packed.sBB[c] && midB !== null) {
+          if (mLevel[c] < 1 && curC.close > midB) mLevel[c] = 1;
+          if (mLevel[c] < 2 && upB !== null && curC.close > upB) mLevel[c] = 2;
+          const maji = (mLevel[c] === 2 ? upB : (mLevel[c] === 1 ? midB : null));
+          if (maji !== null && sPrice < maji) exit = true;
+        }
+        if (!exit && ((packed.sRSI[c] && rS[t]) || (packed.sST[c] && sS[t]) || (packed.sEOM[c] && eS[t]))) exit = true;
+        if (exit || t === T - 1) {
+          const eIdx = (packed.st[c] === 0 || t === T - 1 ? t : t + 1);
+          const finalE = Math.min(T - 1, Math.max(buyIdx[c] + 1, eIdx));
+          const eP = candles[finalE][SimState.bbSellPriceType] || candles[finalE].close;
+          const pnl = (eP - buyPrice[c]) / buyPrice[c];
+          multi[c] *= (1 + pnl); sigs[c]++; if (pnl > 0) succs[c]++;
+          isHolding[c] = 0; nextIdx[c] = finalE + 1;
+        }
+      }
+    }
+  }
+  return Array.from({length:n}, (_,i) => ({
+    pnl: (multi[i]-1)*100, total: sigs[i], firstBuy: firstP[i]
+  }));
+}
+
 async function runOptimization(codes) {
   const btn = document.getElementById('btnOptimize');
   if (!btn || codes.length === 0) return;
-  
   btn.disabled = true;
   document.getElementById('btnRunSim').disabled = true;
   document.getElementById('btnTodayScan').disabled = true;
-  
   const originalState = { ...SimState };
-  
-  // 강제 고정값 (UI의 영향을 받지 않도록 끄기 및 초기화)
-  SimState.holdDaysActive = false;
-  SimState.targetProfitActive = false;
-  SimState.bbFilterThreshold = 0;
-  
-  SimState.optResults = {}; // 🚀 신규 최적화 런 시 기존 메모장 백지로 리셋
-
+  SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
+  SimState.optResults = {};
+  const packed = _packScenarios();
   const bests = {};
-  codes.forEach(code => { bests[code] = { pnl: -Infinity, combo: null, res: null }; });
-
-  const yieldToMain = () => new Promise(r => {
+  codes.forEach(c => { bests[c] = { pnl: -Infinity, idx: -1 }; });
+  const yieldTo = () => new Promise(r => {
     if (typeof MessageChannel !== 'undefined') {
-      const ch = new MessageChannel();
-      ch.port1.onmessage = () => r();
-      ch.port2.postMessage(null);
+      const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(null);
     } else setTimeout(r, 0);
   });
-
-  const combos = generateCombos();
-  const totalApprox = 67392; 
-  let count = 0;
-  let isRunning = true;
-  
-  while (isRunning) {
-    const chunkStart = performance.now();
-    // 🚀 브라우저 탭이 백그라운드로 가면 1초 강제 딜레이(Throttling)를 맞기 때문에, 
-    // 연산 청크의 묶음을 15ms(60프레임)에서 450ms 단위로 30배 대폭 키워서 지연을 회피함.
-    const limit = document.hidden ? 450 : 15;
-    
-    while (performance.now() - chunkStart < limit) { 
-      const res = combos.next();
-      if (res.done) { isRunning = false; break; }
-      
-      const combo = res.value;
-      Object.assign(SimState, combo);
-      
-      for (const code of codes) {
-        const data = SimState.watchData[code];
-        if (!data || !data.candlesWithBB || data.candlesWithBB.length === 0) continue;
-        const r = _calculateTotalSim(data);
-        if (!r || r.total === 0) continue;
-        
-        if (r.pnl > bests[code].pnl) {
-          bests[code].pnl = r.pnl;
-          bests[code].combo = { ...combo };
-          bests[code].res = r;
-        }
+  let done = 0;
+  for (const code of codes) {
+    const data = SimState.watchData[code];
+    if (data && data.candlesWithBB && data.candlesWithBB.length > 0) {
+      const results = _runVectorizedSimulation(data, packed);
+      if (results) {
+        let maxP = -Infinity, maxI = -1;
+        results.forEach((r, i) => { if (r.total > 0 && r.pnl > maxP) { maxP = r.pnl; maxI = i; } });
+        if (maxI !== -1) { bests[code].pnl = maxP; bests[code].idx = maxI; }
       }
-      count++;
     }
-    
-    const pct = Math.min(100, Math.floor((count / totalApprox) * 100));
+    done++; const pct = Math.floor((done/codes.length)*100);
     btn.textContent = `${pct}%`;
     btn.style.background = `linear-gradient(90deg, #9333ea ${pct}%, #7e22ce ${pct}%)`;
-    
-    await yieldToMain();
+    await yieldTo();
   }
-  
-  let foundAny = false;
-  const newOptResults = {};
-  const newSimResults = {};
-
+  Object.assign(SimState, originalState);
+  let found = false;
   codes.forEach(code => {
-    if (bests[code].combo) {
-      foundAny = true;
-      newOptResults[code] = bests[code].combo;
-      newSimResults[code] = bests[code].res;
+    const b = bests[code];
+    if (b.idx !== -1) {
+      found = true; const combo = packed.combos[b.idx];
+      SimState.optResults[code] = combo;
+      const backup = { ...SimState };
+      Object.assign(SimState, combo);
+      SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
+      SimState.simResults[code] = _calculateTotalSim(SimState.watchData[code]);
+      Object.assign(SimState, backup);
     }
   });
-
-  Object.assign(SimState, originalState); // UI 원상복구
-  
-  // 🚀 버그 수정: 원상복구된 SimState 위에, 방금 새로 찾아낸 1등 메모장과 점수판을 다시 단단히 부착!
-  Object.assign(SimState.optResults, newOptResults);
-  Object.assign(SimState.simResults, newSimResults);
-  
-  if (foundAny) {
-    const firstCode = codes.find(c => bests[c].combo);
-    
-    // 첫 번째 성공 종목의 최적값으로 UI 세팅 변신
-    Object.assign(SimState, bests[firstCode].combo);
-    SimState.holdDaysActive = false;
-    SimState.targetProfitActive = false;
-    SimState.bbFilterThreshold = 0;
-    
-    syncUIToState(bests[firstCode].combo);
-    _markSimDirty(true); // 변경된 설정으로 선행 렌더링 (보호막 유지)
-    showStockPreview(firstCode); 
-    
-    showToast(`개별 종목별 맞춤 최적조건 탐색 완료! 리스트에서 종목을 클릭해 보세요.`, 'success');
+  if (found) {
+    const firstCode = codes.find(c => bests[c].idx !== -1);
+    const best = packed.combos[bests[firstCode].idx];
+    Object.assign(SimState, best);
+    SimState.holdDaysActive = false; SimState.targetProfitActive = false; SimState.bbFilterThreshold = 0;
+    syncUIToState(best); _markSimDirty(true); showStockPreview(firstCode);
+    showToast(`총 ${codes.length}개 종목 최적조건 탐색 완료!`, 'success');
   } else {
-    showToast('탐색 범위를 만족하는 유효한 전략이 없습니다.', 'error');
+    showToast('유효한 전략이 없습니다.', 'error');
   }
-  
-  btn.textContent = '최적조건';
-  btn.style.background = '';
-  btn.disabled = false;
+  btn.textContent = '최적조건'; btn.style.background = ''; btn.disabled = false;
   _updateRunButtonsState();
 }
 
@@ -538,7 +625,7 @@ function resetFiltersToDefault() {
   if (btn) {
     btn.style.background = '#7c2d12';
     btn.style.boxShadow = 'none';
-    btn.innerHTML = '다시 실행 필요';
+    btn.innerHTML = '다시 실행';
   }
 }
 
@@ -560,9 +647,8 @@ function initHeaderControls() {
   // 최적조건 탐색 버튼 바인딩
   const btnOpt = document.getElementById('btnOptimize');
   if (btnOpt) btnOpt.addEventListener('click', () => {
-    if (SimState.selectedCodes.length > 0) {
-      runOptimization(SimState.selectedCodes);
-    }
+    const targets = SimState.selectedCodes.length > 0 ? SimState.selectedCodes : getSelectedStocks().map(s => s.code);
+    if (targets.length > 0) runOptimization(targets);
   });
 
   // 시뮬레이션 버튼 바인딩
@@ -714,7 +800,8 @@ function _updateRunButtonsState() {
   const hasFilter = SimState.bbFilterActive || SimState.eomFilterActive || SimState.rsiFilterActive || SimState.stochFilterActive;
   
   if (btnOpt) {
-    const canOpt = SimState.selectedCodes && SimState.selectedCodes.length > 0;
+    const stocks = getSelectedStocks();
+    const canOpt = (SimState.selectedCodes.length > 0) || (stocks && stocks.length > 0);
     btnOpt.disabled = !canOpt;
     btnOpt.style.opacity = canOpt ? '1' : '0.5';
     btnOpt.style.cursor = canOpt ? 'pointer' : 'not-allowed';
@@ -1549,7 +1636,7 @@ async function runSimulation() {
     if (SimState.simDirty) {
       btn.style.background = '#7c2d12';
       btn.style.boxShadow = 'none';
-      btn.innerHTML = '다시 실행 필요';
+      btn.innerHTML = '다시 실행';
     } else {
       btn.style.background = '';
       btn.style.boxShadow = '';
