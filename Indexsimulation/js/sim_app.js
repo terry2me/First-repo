@@ -2683,7 +2683,32 @@ function initColResizers() {
       e.preventDefault(); e.stopPropagation();
       h.classList.add('dragging');
       sw = parseInt(getComputedStyle(document.documentElement).getPropertyValue(v), 10) || 80;
-      sx = e.clientX;
+      sx = e.clientX;    // 🚀 매매 이력(History) 방향키 네비게이션
+    if (SimState.historyActive && SimState.previewData) {
+      const simRes = SimState.simResults[SimState.previewCode] || SimState.simResults[SimState.previewData.code];
+      if (simRes && simRes.trades && simRes.trades.length > 0) {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          SimState.selectedTradeIndex = Math.max(0, SimState.selectedTradeIndex - 1);
+          renderSimHistory(simRes.trades);
+          _refreshActiveCharts(SimState.previewData, simRes, SimState.selectedTradeIndex);
+          return;
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          SimState.selectedTradeIndex = Math.min(simRes.trades.length - 1, SimState.selectedTradeIndex + 1);
+          renderSimHistory(simRes.trades);
+          _refreshActiveCharts(SimState.previewData, simRes, SimState.selectedTradeIndex);
+          return;
+        }
+      }
+    }
+
+    // 🚀 헬퍼: 현재 활성화된 모든 차트 갱신 (하이라이트 포함)
+    function _refreshActiveCharts(data, res, idx) {
+      Charts.renderMini('previewChart', data, res, SimState.simPeriodMonths, idx);
+      Charts.renderEOM('eomChart', data, res, SimState.simPeriodMonths, idx);
+      Charts.renderRSIStoch('rsiStochChart', data, res, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS, idx);
+    }
       const mv = ev => {
         document.documentElement.style.setProperty(v, Math.max(MIN[key] || 60, sw + ev.clientX - sx) + 'px');
         Charts.resizeAll();
@@ -2995,32 +3020,33 @@ function initKeyboardNavigation() {
     // 1. 입력창이 활성화된 경우 무시
     if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
 
-    // 2. 관심종목 탭이 활성 상태일 때만 작동 (다른 탭과의 간섭 방지)
+    // 3. 관심종목 탭이 활성 상태일 때만 작동 (다른 탭과의 간섭 방지)
     const filterTab = document.getElementById('tab-simulation');
     if (!filterTab || filterTab.classList.contains('hidden') || filterTab.style.display === 'none') return;
 
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      // 🚀 이력 영역(History)이 활성화된 경우 이력 탐색
-      if (SimState.historyActive && SimState.previewData) {
-        // 🚀 키 불일치 방지: previewCode를 우선 참조
-        const simRes = SimState.simResults[SimState.previewCode] || SimState.simResults[SimState.previewData.code];
-        
-        if (simRes && simRes.trades && simRes.trades.length > 0) {
-          e.preventDefault();
-          const maxIdx = simRes.trades.length - 1;
-          if (e.key === 'ArrowDown') {
-            SimState.selectedTradeIndex = Math.min(maxIdx, SimState.selectedTradeIndex + 1);
-          } else {
-            SimState.selectedTradeIndex = Math.max(0, SimState.selectedTradeIndex - 1);
-          }
-          renderSimHistory(simRes.trades);
-          Charts.renderMini('previewChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.selectedTradeIndex);
-          Charts.renderEOM('eomChart', SimState.previewData, simRes, SimState.simPeriodMonths);
-          Charts.renderRSIStoch('rsiStochChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS);
-          return;
+    // 🚀 매매 이력(History) 방향키 네비게이션
+    if (SimState.historyActive && SimState.previewData && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      const simRes = SimState.simResults[SimState.previewCode] || SimState.simResults[SimState.previewData.code];
+      if (simRes && simRes.trades && simRes.trades.length > 0) {
+        e.preventDefault();
+        const maxIdx = simRes.trades.length - 1;
+        if (e.key === 'ArrowUp') {
+          SimState.selectedTradeIndex = Math.max(0, SimState.selectedTradeIndex - 1);
+        } else {
+          SimState.selectedTradeIndex = Math.min(maxIdx, SimState.selectedTradeIndex + 1);
         }
+        renderSimHistory(simRes.trades);
+        
+        // 차트 갱신 (모든 차트에 인덱스 전달)
+        Charts.renderMini('previewChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.selectedTradeIndex);
+        Charts.renderEOM('eomChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.selectedTradeIndex);
+        Charts.renderRSIStoch('rsiStochChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.rsiOB, SimState.rsiOS, SimState.stochOB, SimState.stochOS, SimState.selectedTradeIndex);
+        return;
       }
+    }
 
+    // 4. 종목 리스트 방향키 네비게이션
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       // 🚀 메인 리스트 탐색 (이력 영역이 활성화된 경우 건너뜀)
       if (SimState.historyActive) return;
 

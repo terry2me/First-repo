@@ -452,21 +452,29 @@ const Charts = (() => {
     const sigArr = cands.map(c => c.eomSignal !== null ? parseFloat(c.eomSignal.toFixed ? c.eomSignal.toFixed(8) : c.eomSignal) : null);
 
     // 🚀 지표 차트는 시뮬레이션 결과와 관계없이 항상 "순수 지표 신호"만 표시
-    const buyScatter = cands.map((c, i) => c.eomCross === 'BUY' ? [i, c.eom] : null).filter(Boolean);
-    const sellScatter = cands.map((c, i) => c.eomCross === 'SELL' ? [i, c.eom] : null).filter(Boolean);
+    // 🚀 지표 차트는 시뮬레이션 결과와 관계없이 항상 "순수 지표 신호"만 표시
+    const buyScatter = cands.map((c, i) => {
+      if (c.eomCross !== 'BUY') return null;
+      const isH = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]?.buyDate === c.date);
+      return {
+        value: [i, c.eom],
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
+        label: isH ? { color: COLOR.candleUp, fontSize: 10, fontWeight: 800 } : { show: true, formatter: 'B', position: 'bottom', color: COLOR.candleUp, fontSize: 8, fontWeight: 700 },
+        symbolSize: isH ? 14 : 10
+      };
+    }).filter(Boolean);
 
-    // 🚀 하이라이트 매수/매도 (매매 이력 클릭 시)
-    const highlightBuy = [];
-    const highlightSell = [];
-    if (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]) {
-      const t = simResult.trades[highlightIndex];
-      const bIdx = dates.indexOf(t.buyDate);
-      if (bIdx !== -1) highlightBuy.push([bIdx, eomArr[bIdx]]);
-      if (!t.isOpen && t.exitDate) {
-        const sIdx = dates.indexOf(t.exitDate);
-        if (sIdx !== -1) highlightSell.push([sIdx, eomArr[sIdx]]);
-      }
-    }
+    const sellScatter = cands.map((c, i) => {
+      if (c.eomCross !== 'SELL') return null;
+      const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
+      const isH = (t && t.exitDate === c.date && !t.isOpen);
+      return {
+        value: [i, c.eom],
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
+        label: isH ? { color: COLOR.candleDown, fontSize: 10, fontWeight: 800 } : { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700 },
+        symbolSize: isH ? 14 : 10
+      };
+    }).filter(Boolean);
 
     chart.setOption({
       backgroundColor: 'transparent',
@@ -516,31 +524,12 @@ const Charts = (() => {
         {
           name: 'BUY신호', type: 'scatter', data: buyScatter,
           symbol: 'triangle', symbolSize: 10,
-          itemStyle: { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
-          label: { show: true, formatter: 'B', position: 'bottom', color: COLOR.candleUp, fontSize: 8, fontWeight: 700 },
           z: 5,
         },
         {
           name: 'SELL신호', type: 'scatter', data: sellScatter,
           symbol: 'triangle', symbolRotate: 180, symbolSize: 10,
-          itemStyle: { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
-          label: { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700 },
           z: 5,
-        },
-        // 🚀 하이라이트 포인트
-        {
-          name: 'S_HIGHLIGHT_IN', type: 'scatter', data: highlightBuy,
-          symbol: 'circle', symbolSize: 18,
-          itemStyle: { color: 'rgba(239,68,68,0.3)', borderColor: '#fff', borderWidth: 2 },
-          label: { show: true, formatter: 'In', color: '#fff', fontSize: 10, fontWeight: 800 },
-          z: 10,
-        },
-        {
-          name: 'S_HIGHLIGHT_OUT', type: 'scatter', data: highlightSell,
-          symbol: 'circle', symbolSize: 18,
-          itemStyle: { color: 'rgba(96,165,250,0.3)', borderColor: '#fff', borderWidth: 2 },
-          label: { show: true, formatter: 'Out', color: '#fff', fontSize: 10, fontWeight: 800 },
-          z: 10,
         },
       ],
     });
@@ -572,26 +561,27 @@ const Charts = (() => {
     // 🚀 지표 차트는 시뮬레이션 결과와 관계없이 항상 "순수 지표 신호"만 표시 
     // RSI와 Stochastic 신호가 분리되었으므로, 둘 중 하나라도 있으면 표시 (우선순위: RSI > Stoch)
     const buyS = cands.map((c, i) => {
-      if (c.rsiSignal === 'BUY' || c.stochSignal === 'BUY') return [i, rsiArr[i]];
-      return null;
-    }).filter(Boolean);
-    const sellS = cands.map((c, i) => {
-      if (c.rsiSignal === 'SELL' || c.stochSignal === 'SELL') return [i, rsiArr[i]];
-      return null;
+      if (c.rsiSignal !== 'BUY' && c.stochSignal !== 'BUY') return null;
+      const isH = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]?.buyDate === c.date);
+      return {
+        value: [i, rsiArr[i]],
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
+        label: isH ? { color: COLOR.candleUp, fontSize: 10, fontWeight: 800, position: 'bottom', offset: [0, 2] } : { show: true, formatter: 'B', position: 'bottom', color: COLOR.candleUp, fontSize: 8, fontWeight: 700, offset: [0, 2] },
+        symbolSize: isH ? 14 : 10
+      };
     }).filter(Boolean);
 
-    // 🚀 하이라이트 매수/매도 (매매 이력 클릭 시)
-    const highlightBuy = [];
-    const highlightSell = [];
-    if (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]) {
-      const t = simResult.trades[highlightIndex];
-      const bIdx = dates.indexOf(t.buyDate);
-      if (bIdx !== -1) highlightBuy.push([bIdx, rsiArr[bIdx]]); // RSI선 위에 하이라이트
-      if (!t.isOpen && t.exitDate) {
-        const sIdx = dates.indexOf(t.exitDate);
-        if (sIdx !== -1) highlightSell.push([sIdx, rsiArr[sIdx]]);
-      }
-    }
+    const sellS = cands.map((c, i) => {
+      if (c.rsiSignal !== 'SELL' && c.stochSignal !== 'SELL') return null;
+      const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
+      const isH = (t && t.exitDate === c.date && !t.isOpen);
+      return {
+        value: [i, rsiArr[i]],
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
+        label: isH ? { color: COLOR.candleDown, fontSize: 10, fontWeight: 800, position: 'top', offset: [0, -2] } : { show: true, formatter: 'S', position: 'top', color: COLOR.candleDown, fontSize: 8, fontWeight: 700, offset: [0, -2] },
+        symbolSize: isH ? 14 : 10
+      };
+    }).filter(Boolean);
 
     chart.setOption({
       backgroundColor: 'transparent',
@@ -648,39 +638,12 @@ const Charts = (() => {
         {
           name: 'BUY신호', type: 'scatter', data: buyS,
           symbol: 'triangle', symbolSize: 10,
-          itemStyle: { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
-          label: { 
-            show: true, formatter: 'B', position: 'bottom', 
-            color: COLOR.candleUp, fontSize: 8, fontWeight: 700,
-            offset: [0, 2] // 🚀 매수는 지표선 아래로 살짝 내림
-          },
           z: 5,
         },
         {
           name: 'SELL신호', type: 'scatter', data: sellS,
           symbol: 'triangle', symbolRotate: 180, symbolSize: 10,
-          itemStyle: { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
-          label: { 
-            show: true, formatter: 'S', position: 'top', 
-            color: COLOR.candleDown, fontSize: 8, fontWeight: 700,
-            offset: [0, -2] // 🚀 매도는 지표선 위로 살짝 올림
-          },
           z: 5,
-        },
-        // 🚀 하이라이트 포인트
-        {
-          name: 'S_HIGHLIGHT_IN', type: 'scatter', data: highlightBuy,
-          symbol: 'circle', symbolSize: 18,
-          itemStyle: { color: 'rgba(239,68,68,0.3)', borderColor: '#fff', borderWidth: 2 },
-          label: { show: true, formatter: 'In', color: '#fff', fontSize: 10, fontWeight: 800 },
-          z: 10,
-        },
-        {
-          name: 'S_HIGHLIGHT_OUT', type: 'scatter', data: highlightSell,
-          symbol: 'circle', symbolSize: 18,
-          itemStyle: { color: 'rgba(96,165,250,0.3)', borderColor: '#fff', borderWidth: 2 },
-          label: { show: true, formatter: 'Out', color: '#fff', fontSize: 10, fontWeight: 800 },
-          z: 10,
         },
       ],
     });
