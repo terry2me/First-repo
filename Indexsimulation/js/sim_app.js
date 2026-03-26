@@ -2445,7 +2445,7 @@ function buildListItem(stock, data, rowNum, isPinned) {
       <div class="col-item col-sim-count" style="min-width: 44px;">${simCountStr}</div>
       <div class="col-item col-sim-pnl ${pnlClass}" style="min-width: 40px;">${simPnlStr}</div>
       <div class="col-item col-sim-bh ${bhClass}" style="min-width: 40px;">${simBHStr}</div>
-      <div class="col-item col-sim-diff ${diffClass}" style="min-width: 40px; font-weight: 700;">${simDiffStr}</div>
+      <div class="col-item col-sim-diff ${diffClass}" style="min-width: 40px;">${simDiffStr}</div>
       <div class="col-item col-sim-mdd down" style="min-width: 40px;">${Math.round(res.mdd || 0)}%</div>
       <div class="col-item col-sim-sha" style="min-width: 36px; color:var(--text-secondary);">${(res.sharpe || 0).toFixed(2)}</div>
       <div class="col-item col-sim-stn" style="min-width: 36px; color:var(--text-secondary);">${(res.sortino || 0).toFixed(2)}</div>
@@ -2558,7 +2558,6 @@ function _refreshListItem(code) {
     const diff = sim?.diffPnl ?? 0;
     diffEl.textContent = sim && sim.total > 0 ? (diff >= 0 ? '+' : '') + Math.trunc(diff) + '%' : '--';
     diffEl.className = `col-item col-sim-diff ${sim && sim.total > 0 ? (diff >= 0 ? 'up' : 'down') : ''}`;
-    diffEl.style.fontWeight = '700';
   }
 
   // 🚀 리스크 지표 추가 갱신
