@@ -70,28 +70,31 @@ const Charts = (() => {
     const sellMarkers = [];
     if (simResult && simResult.trades) {
       simResult.trades.forEach((t, idx) => {
+        const isTradeSelected = (idx === highlightIndex);
         const bIdx = dates.indexOf(t.buyDate);
-        const isHighlighted = (idx === highlightIndex);
+        const sSigIdx = t.sigDate ? dates.indexOf(t.sigDate) : -1;
 
-        if (bIdx !== -1) {
+        // 🚀 매수 하일라이트: 선택된 행이면서 사유가 BB인 경우만 강조
+        const isBuyHighlighted = isTradeSelected && (t.reason || '').toLowerCase().includes('bb');
+        const targetBuyIdx = (sSigIdx !== -1) ? sSigIdx : bIdx;
+        if (targetBuyIdx !== -1) {
           buyMarkers.push({
-            // 🚀 매수/매도 모두 캔들 최상단(high)에 배치하여 일봉 가림 방지
-            value: [bIdx, candlesToDraw[bIdx].high],
-            itemStyle: isHighlighted ? { color: COLOR.candleUp, borderColor: '#fff', borderWidth: 2.5 } : {},
-            label: { show: false },
-            symbolSize: isHighlighted ? 28 : 20,
+            value: [targetBuyIdx, candlesToDraw[targetBuyIdx].high],
+            itemStyle: isBuyHighlighted ? { color: COLOR.candleUp, borderColor: '#fff', borderWidth: 2.5 } : {},
+            symbolSize: isBuyHighlighted ? 28 : 20,
           });
         }
 
-        if (!t.isOpen && t.exitDate) {
-          const sIdx = dates.indexOf(t.exitDate);
-          if (sIdx !== -1) {
+        if (!t.isOpen) {
+          const sDate = t.exitSigDate || t.exitDate;
+          const sSigIdx = dates.indexOf(sDate);
+          if (sSigIdx !== -1) {
+            // 🚀 매도 하일라이트: 선택된 행이면서 사유가 '이탈'(추격매도) 또는 'BB'인 경우만 강조
+            const isSellHighlighted = isTradeSelected && ((t.exitReason || '').includes('이탈') || (t.exitReason || '').toLowerCase().includes('bb'));
             sellMarkers.push({
-              // 🚀 매도는 캔들 상단(high)에 표시
-              value: [sIdx, candlesToDraw[sIdx].high],
-              itemStyle: isHighlighted ? { color: '#fff', borderColor: '#60a5fa', borderWidth: 2.5 } : {},
-              label: { show: false },
-              symbolSize: isHighlighted ? 28 : 20,
+              value: [sSigIdx, candlesToDraw[sSigIdx].high],
+              itemStyle: isSellHighlighted ? { color: '#fff', borderColor: '#60a5fa', borderWidth: 2.5 } : {},
+              symbolSize: isSellHighlighted ? 28 : 20,
             });
           }
         }
@@ -450,12 +453,11 @@ const Charts = (() => {
     // 🚀 지표 차트는 시뮬레이션 결과와 관계없이 항상 "순수 지표 신호"만 표시
     const buyScatter = cands.map((c, i) => {
       if (c.eomCross !== 'BUY') return null;
-      const trade = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-      const isH = (trade && trade.buyDate === c.date && (trade.reason || '').includes('EOM'));
+      const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
+      const isH = (t && (t.sigDate === c.date || t.buyDate === c.date) && (t.reason || '').includes('EOM'));
       return {
         value: [i, c.eom],
-        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
-        label: isH ? { show: false } : { show: false },
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { borderVariant: 'none' },
         symbolSize: isH ? 14 : 10
       };
     }).filter(Boolean);
@@ -463,11 +465,10 @@ const Charts = (() => {
     const sellScatter = cands.map((c, i) => {
       if (c.eomCross !== 'SELL') return null;
       const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-      const isH = (t && t.exitDate === c.date && !t.isOpen && t.exitReason === 'EOM매도');
+      const isH = (t && (t.exitSigDate === c.date || t.exitDate === c.date) && !t.isOpen && (t.exitReason || '').includes('EOM'));
       return {
         value: [i, c.eom],
-        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
-        label: isH ? { show: false } : { show: false },
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { borderVariant: 'none' },
         symbolSize: isH ? 14 : 10
       };
     }).filter(Boolean);
@@ -557,11 +558,10 @@ const Charts = (() => {
     const buyS = cands.map((c, i) => {
       if (c.rsiSignal !== 'BUY' && c.stochSignal !== 'BUY') return null;
       const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-      const isH = (t && t.buyDate === c.date && ((t.reason || '').includes('RSI') || (t.reason || '').includes('ST')));
+      const isH = (t && (t.sigDate === c.date || t.buyDate === c.date) && ((t.reason || '').includes('RSI') || (t.reason || '').includes('ST')));
       return {
         value: [i, rsiArr[i]],
-        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
-        label: isH ? { show: false } : { show: false },
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { borderVariant: 'none' },
         symbolSize: isH ? 14 : 10
       };
     }).filter(Boolean);
@@ -569,11 +569,10 @@ const Charts = (() => {
     const sellS = cands.map((c, i) => {
       if (c.rsiSignal !== 'SELL' && c.stochSignal !== 'SELL') return null;
       const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-      const isH = (t && t.exitDate === c.date && !t.isOpen && (t.exitReason === 'RSI매도' || t.exitReason === 'ST매도'));
+      const isH = (t && (t.exitSigDate === c.date || t.exitDate === c.date) && !t.isOpen && ((t.exitReason || '').includes('RSI') || (t.exitReason || '').includes('ST')));
       return {
         value: [i, rsiArr[i]],
-        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
-        label: isH ? { show: false } : { show: false },
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { borderVariant: 'none' },
         symbolSize: isH ? 14 : 10
       };
     }).filter(Boolean);
@@ -667,23 +666,21 @@ const Charts = (() => {
     const buyS = cands.map((c, i) => {
       if (c.macdCross !== 'BUY') return null;
       const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-      const isH = (t && t.buyDate === c.date && (t.reason || '').includes('MACD'));
+      const isH = (t && (t.sigDate === c.date || t.buyDate === c.date) && (t.reason || '').includes('MACD'));
       return {
         value: [i, macdArr[i]],
-        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
-        label: isH ? { show: false } : { show: false },
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { borderVariant: 'none' },
         symbolSize: isH ? 14 : 10
       };
     }).filter(Boolean);
 
     const sellS = cands.map((c, i) => {
-      if (c.macdCross !== 'SELL') return null; // MACD는 현재 명시적 매도 신호가 없으나 확장 대비 보존
+      if (c.macdCross !== 'SELL') return null; 
       const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-      const isH = (t && t.exitDate === c.date && !t.isOpen && t.exitReason === 'MACD매도');
+      const isH = (t && (t.exitSigDate === c.date || t.exitDate === c.date) && !t.isOpen && (t.exitReason || '').includes('MACD'));
       return {
         value: [i, macdArr[i]],
-        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
-        label: isH ? { show: false } : { show: false },
+        itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { borderVariant: 'none' },
         symbolSize: isH ? 14 : 10
       };
     }).filter(Boolean);
@@ -732,11 +729,10 @@ const Charts = (() => {
     const buyS = cands.map((c, i) => {
         if (c.mfiSignal !== 'BUY') return null;
         const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-        const isH = (t && t.buyDate === c.date && (t.reason || '').includes('MFI'));
+        const isH = (t && (t.sigDate === c.date || t.buyDate === c.date) && (t.reason || '').includes('MFI'));
         return {
             value: [i, mfiArr[i]],
-            itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { color: COLOR.candleUp, borderColor: '#cbd5e1', borderWidth: 0.5 },
-            label: isH ? { show: false } : { show: false },
+            itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleUp, borderWidth: 2 } : { borderVariant: 'none' },
             symbolSize: isH ? 14 : 10
         };
     }).filter(Boolean);
@@ -744,11 +740,10 @@ const Charts = (() => {
     const sellS = cands.map((c, i) => {
         if (c.mfiSignal !== 'SELL') return null;
         const t = (highlightIndex >= 0 && simResult && simResult.trades[highlightIndex]);
-        const isH = (t && t.exitDate === c.date && !t.isOpen && t.exitReason === 'MFI매도');
+        const isH = (t && (t.exitSigDate === c.date || t.exitDate === c.date) && !t.isOpen && (t.exitReason || '').includes('MFI'));
         return {
             value: [i, mfiArr[i]],
-            itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { color: COLOR.candleDown, borderColor: '#cbd5e1', borderWidth: 0.5 },
-            label: isH ? { show: false } : { show: false },
+            itemStyle: isH ? { color: '#fff', borderColor: COLOR.candleDown, borderWidth: 2 } : { borderVariant: 'none' },
             symbolSize: isH ? 14 : 10
         };
     }).filter(Boolean);

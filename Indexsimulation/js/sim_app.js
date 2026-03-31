@@ -1968,39 +1968,33 @@ function _calculateTotalSim(data) {
     }
 
     let eomOk = !SimState.eomFilterActive;
-    let eomSigIdx = -1;
     if (SimState.eomFilterActive) {
       for (let k = 0; k < win; k++) {
         if (i - k < 0) break;
         if (candles[i - k].eomCross === 'BUY') { 
           eomOk = true; 
-          eomSigIdx = i - k; 
           break; 
         }
       }
     }
 
     let rsiOk = !SimState.rsiFilterActive;
-    let rsiSigIdx = -1;
     if (SimState.rsiFilterActive) {
       for (let k = 0; k < win; k++) {
         if (i - k < 0) break;
         if (candles[i - k].rsiSignal === 'BUY') { 
           rsiOk = true; 
-          rsiSigIdx = i - k;
           break; 
         }
       }
     }
 
     let stochOk = !SimState.stochFilterActive;
-    let stochSigIdx = -1;
     if (SimState.stochFilterActive) {
       for (let k = 0; k < win; k++) {
         if (i - k < 0) break;
         if (candles[i - k].stochSignal === 'BUY') { 
           stochOk = true; 
-          stochSigIdx = i - k;
           break; 
         }
       }
@@ -2208,6 +2202,7 @@ function _calculateTotalSim(data) {
           } else {
             exitPrice = candles[actualExitIdx]?.[SimState.bbSellPriceType] ?? candles[actualExitIdx]?.close ?? 0;
             exitDate = candles[actualExitIdx]?.date || 'Unknown';
+            exitSigDate = candles[checkIdx]?.date || 'Unknown'; // 매도 신호일 기록
           }
           break;
         }
@@ -2256,6 +2251,7 @@ function _calculateTotalSim(data) {
         buyPrice, // 🚀 실제 매수가 필드 복구 (보유 수익률 계산용)
         buyIdx,
         exitDate,
+        exitSigDate: isOpen ? null : (exitSigDate || null), // 🚀 매도 신호 발생일 추가
         exitPrice,
         exitReason,
         exitIdx: actualExitIdx,
@@ -3272,12 +3268,22 @@ function initKeyboardNavigation() {
       if (simRes && simRes.trades && simRes.trades.length > 0) {
         e.preventDefault();
         const maxIdx = simRes.trades.length - 1;
-        if (e.key === 'ArrowUp') {
-          SimState.selectedTradeIndex = Math.max(0, SimState.selectedTradeIndex - 1);
-        } else {
-          SimState.selectedTradeIndex = Math.min(maxIdx, SimState.selectedTradeIndex + 1);
-        }
-        renderSimHistory(simRes.trades);
+        SimState.selectedTradeIndex = (e.key === 'ArrowUp') 
+          ? Math.max(0, SimState.selectedTradeIndex - 1)
+          : Math.min(maxIdx, SimState.selectedTradeIndex + 1);
+
+        // 🚀 성능 최적화: 테이블 전체를 다시 그리지 않고 클래스만 교체
+        const rows = document.querySelectorAll('#simHistoryBody tr');
+        rows.forEach((r, i) => {
+          if (i === SimState.selectedTradeIndex) {
+            r.classList.add('active-row');
+            r.style.background = 'rgba(59, 130, 246, 0.15)';
+            r.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          } else {
+            r.classList.remove('active-row');
+            r.style.background = '';
+          }
+        });
         
         // 차트 갱신 (모든 차트에 인덱스 전달)
         Charts.renderMini('previewChart', SimState.previewData, simRes, SimState.simPeriodMonths, SimState.selectedTradeIndex);
@@ -3477,8 +3483,17 @@ function renderSimHistory(trades) {
       SimState.selectedTradeIndex = idx;
       SimState.historyActive = true;
       
-      // 행 스타일 업데이트를 위해 재렌더링
-      renderSimHistory(trades);
+      // 🚀 선능 최적화: 클릭한 행만 하일라이트
+      const rows = document.querySelectorAll('#simHistoryBody tr');
+      rows.forEach((r, i) => {
+        if (i === idx) {
+          r.classList.add('active-row');
+          r.style.background = 'rgba(59, 130, 246, 0.15)';
+        } else {
+          r.classList.remove('active-row');
+          r.style.background = '';
+        }
+      });
       
       // 차트 즉시 갱신
       const data = SimState.previewData;
