@@ -12,8 +12,28 @@ const Indicators = (() => {
    */
   function mean(arr) {
     if (!arr.length) return 0;
-    // 🚀 문자열 이어붙이기 방지를 위해 Number() 강제 형변환 적용
     return arr.reduce((s, v) => s + Number(v), 0) / arr.length;
+  }
+
+  /**
+   * EMA (Exponential Moving Average)
+   */
+  function ema(arr, period) {
+    const n = arr.length;
+    const out = new Array(n).fill(null);
+    if (n < period) return out;
+
+    const k = 2 / (period + 1);
+    let prevEma = mean(arr.slice(0, period));
+    out[period - 1] = prevEma;
+
+    for (let i = period; i < n; i++) {
+      const val = Number(arr[i]);
+      const currentEma = (val - prevEma) * k + prevEma;
+      out[i] = parseFloat(currentEma.toFixed(4));
+      prevEma = currentEma;
+    }
+    return out;
   }
 
   /**
@@ -274,6 +294,114 @@ const Indicators = (() => {
   }
 
   /* ─────────────────────────────────────────────────────────────
+     MACD (Moving Average Convergence Divergence)
+     공식: MACD Line   = EMA(fast) - EMA(slow)
+           Signal Line = EMA(MACD Line, signal)
+           Histogram   = MACD Line - Signal Line
+  ──────────────────────────────────────────────────────────── */
+  /**
+   * MACD 계산
+   * @param {number[]} closes
+   * @param {number}   fast    기본 12
+   * @param {number}   slow    기본 26
+   * @param {number}   signal  기본 9
+   * @returns {Array}  [{macd, signal, hist, signalText}]
+   */
+  function macd(closes, fast = 12, slow = 26, signal = 9) {
+    const n = closes.length;
+    const fastEma = ema(closes, fast);
+    const slowEma = ema(closes, slow);
+    
+    const macdLine = new Array(n).fill(null);
+    for (let i = 0; i < n; i++) {
+      if (fastEma[i] !== null && slowEma[i] !== null) {
+        macdLine[i] = fastEma[i] - slowEma[i];
+      }
+    }
+
+    // MACD Line의 EMA가 Signal Line
+    // ema() 함수가 null을 무시하도록 처리 필요하거나 유효 구간부터 계산
+    const validIdx = macdLine.findIndex(v => v !== null);
+    const validMacd = validIdx === -1 ? [] : macdLine.slice(validIdx);
+    const sigEma = ema(validMacd, signal);
+    
+    const sigArr  = new Array(n).fill(null);
+    const histArr = new Array(n).fill(null);
+    const sigText = new Array(n).fill(null);
+
+    for (let i = 0; i < n; i++) {
+      if (i >= validIdx + signal - 1 && validIdx !== -1) {
+        const sVal = sigEma[i - validIdx];
+        sigArr[i] = sVal;
+        if (macdLine[i] !== null && sVal !== null) {
+          histArr[i] = macdLine[i] - sVal;
+          
+          // 크로스오버 판정
+          const preM = macdLine[i-1], preS = sigArr[i-1];
+          if (preM !== null && preS !== null) {
+            if (preM <= preS && macdLine[i] > sVal) sigText[i] = 'BUY';
+            else if (preM >= preS && macdLine[i] < sVal) sigText[i] = 'SELL';
+          }
+        }
+      }
+    }
+
+    return macdLine.map((m, i) => ({
+      macd: m !== null ? parseFloat(m.toFixed(4)) : null,
+      signal: sigArr[i] !== null ? parseFloat(sigArr[i].toFixed(4)) : null,
+      hist: histArr[i] !== null ? parseFloat(histArr[i].toFixed(4)) : null,
+      signalText: sigText[i]
+    }));
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+     MFI (Money Flow Index)
+     공식: Typical Price = (H + L + C) / 3
+           Money Flow      = Typical Price * Volume
+           Money Ratio     = (n일 Positive MF) / (n일 Negative MF)
+           MFI             = 100 - (100 / (1 + Money Ratio))
+  ──────────────────────────────────────────────────────────── */
+  /**
+   * MFI 계산
+   * @param {Object[]} candles [{high, low, close, volume}, ...]
+   * @param {number}   period  기본 14
+   * @returns {Array}  [{mfi, signalText}] (signalText: OS탈출 BUY, OB탈출 SELL)
+   */
+  function mfi(candles, period = 14, ob = 80, os = 20) {
+    const n = candles.length;
+    const mfiArr = new Array(n).fill(null);
+    const sigText = new Array(n).fill(null);
+    if (n < period + 1) return mfiArr.map(v => ({ mfi: v, signalText: null }));
+
+    const tp = candles.map(c => (c.high + c.low + c.close) / 3);
+    
+    for (let i = period; i < n; i++) {
+        let posMF = 0, negMF = 0;
+        for (let j = i - period + 1; j <= i; j++) {
+            const mf = tp[j] * candles[j].volume;
+            if (tp[j] > tp[j - 1]) posMF += mf;
+            else if (tp[j] < tp[j - 1]) negMF += mf;
+        }
+        
+        if (negMF === 0) {
+            mfiArr[i] = 100;
+        } else {
+            const mr = posMF / negMF;
+            mfiArr[i] = parseFloat((100 - (100 / (1 + mr))).toFixed(2));
+        }
+
+        // 신호 판정 (OB/OS 탈출)
+        const preMfi = mfiArr[i-1];
+        if (preMfi !== null) {
+            if (preMfi <= os && mfiArr[i] > os) sigText[i] = 'BUY';
+            else if (preMfi >= ob && mfiArr[i] < ob) sigText[i] = 'SELL';
+        }
+    }
+
+    return mfiArr.map((v, i) => ({ mfi: v, signalText: sigText[i] }));
+  }
+
+  /* ─────────────────────────────────────────────────────────────
      Stochastic (Slow %K / %D)
      원시 %K = (종가 - n일 최저) / (n일 최고 - n일 최저) × 100
      Slow %K = SMA(원시 %K, slowK2)   ← Slow %K 기간2 (=3 평활)
@@ -383,6 +511,11 @@ const Indicators = (() => {
     const eomAll = eom(allC, indicatorOpts.eomPeriod || 14, indicatorOpts.eomSignal || 14);
     // RSI + Stochastic (기존 하드코딩 { rsiPeriod:14, k1:14, k2:3, d:3, ob:80, os:20 } -> dynamic)
     const rsStAll = rsiStoch(allCls, allC, indicatorOpts);
+    
+    // MACD
+    const macdAll = macd(allCls, indicatorOpts.macdFast || 12, indicatorOpts.macdSlow || 26, indicatorOpts.macdSignal || 9);
+    // MFI
+    const mfiAll  = mfi(allC, indicatorOpts.mfiPeriod || 14, indicatorOpts.mfiOB || 80, indicatorOpts.mfiOS || 20);
 
     // 화면 슬라이스에 붙이기
     const candlesWithIndicators = base.candlesWithBB.map((c, i) => {
@@ -397,11 +530,17 @@ const Indicators = (() => {
         slowD:       rsStAll[bi]?.slowD      ?? null,
         rsiSignal:   rsStAll[bi]?.rsiSignal  ?? null,
         stochSignal: rsStAll[bi]?.stochSignal ?? null,
+        macd:        macdAll[bi]?.macd       ?? null,
+        macdSignal:  macdAll[bi]?.signal     ?? null,
+        macdHist:    macdAll[bi]?.hist       ?? null,
+        macdCross:   macdAll[bi]?.signalText ?? null,
+        mfi:         mfiAll[bi]?.mfi         ?? null,
+        mfiSignal:   mfiAll[bi]?.signalText  ?? null,
       };
     });
 
     return { ...base, candlesWithBB: candlesWithIndicators };
   }
 
-  return { bollingerBands, latestBB, bbRatio, alertLevel, analyze, analyzeAll, eom, rsi, stochastic, rsiStoch };
+  return { mean, ema, bollingerBands, latestBB, bbRatio, alertLevel, analyze, analyzeAll, eom, rsi, stochastic, rsiStoch, macd, mfi };
 })();
