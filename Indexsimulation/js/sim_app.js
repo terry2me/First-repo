@@ -3463,9 +3463,9 @@ function renderSimHistory(trades) {
     row.innerHTML = `
       <td title="${t.buyDate} ~ ${t.exitDate || '진행중'}">${dateDisplay}</td>
       <td style="color:var(--up); font-weight:600;">${t.reason || '신호(In)'}</td>
+      <td style="padding-left: 10px;">${exitCond}</td>
       <td style="text-align: right; opacity: 0.9; font-size: 11px;">${inPriceStr}</td>
       <td style="text-align: right; opacity: 0.9; font-size: 11px;">${outPriceStr}</td>
-      <td style="padding-left: 10px;">${exitCond}</td>
       <td class="log-pnl ${t.pnl >= 0 ? 'up' : 'down'}" style="text-align: right; font-weight:600;">
         ${t.pnl >= 0 ? '+' : ''}${Math.trunc(t.pnl)}%
       </td>

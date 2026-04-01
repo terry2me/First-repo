@@ -1349,6 +1349,7 @@ app.mount("/backtest", StaticFiles(directory=str(BASE_DIR / "backtest"), html=Tr
 app.mount("/discovery", StaticFiles(directory=str(BASE_DIR / "discovery"), html=True), name="discovery")
 app.mount("/filter", StaticFiles(directory=str(BASE_DIR / "filter"), html=True), name="filter")
 app.mount("/Indexsimulation", StaticFiles(directory=str(BASE_DIR / "Indexsimulation"), html=True), name="simulation")
+app.mount("/ForwardAnalysis", StaticFiles(directory=str(BASE_DIR / "ForwardAnalysis"), html=True), name="ForwardAnalysis")
 
 @app.get("/")
 async def root():
@@ -1357,6 +1358,10 @@ async def root():
 @app.get("/watchlist.html")
 async def watchlist():
     return FileResponse(str(BASE_DIR / "watchlist" / "index.html"))
+
+@app.get("/forward.html")
+async def forward():
+    return FileResponse(str(BASE_DIR / "ForwardAnalysis" / "index.html"))
 
 @app.get("/favicon.ico")
 async def favicon():
