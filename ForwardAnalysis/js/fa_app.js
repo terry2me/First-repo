@@ -344,6 +344,9 @@ function* generateCombos() {
                               for (let sEOM of bools) {
                                 for (let sMACD of bools) {
                                   for (let sMFI of bools) {
+                                    // 🚀 [WFA 핵심 수정] 매도 조건이 하나도 없는 조합은 후보에서 제외 (시뮬레이션 잠구 현상 방지)
+                                    if (!sBB && !sRSI && !sST && !sEOM && !sMACD && !sMFI) continue;
+
                                     yield {
                                       simSignalWindow: sw,
                                       simBuyTiming: bt, simSellTiming: st,
@@ -496,22 +499,27 @@ async function runOptimization(codes) {
   const testMonths = Number(document.getElementById('faTestMonths')?.value || 1);
   
   // 🚀 비중에 따른 학습 개월 수 산출 (설정한 전체 분석 기간의 상대 %값 반영)
-  let trainMonths = Math.round(SimState.simPeriodMonths * (trainRatio / 100));
+  let trainRatioVal = trainRatio / 100;
+  let trainMonths = Math.round(SimState.simPeriodMonths * trainRatioVal);
   if (trainMonths < 1) trainMonths = 1; // 최소 1개월 보장
 
-  const trainSize = Math.floor(trainMonths * 21);
-  const testSize = Math.floor(testMonths * 21);
+  // 🚀 [WFA 핵심 수정] 필요한 전체 데이터 양(학습+검증)을 동적으로 계산하여 데이터 부족 현상 방지
+  // 6M 설정, 50% 학습 시 6+3=9개월분 필요. 12M 설정, 50% 학습 시 12+6=18개월분 필요.
+  const reqMonths = SimState.simPeriodMonths + trainMonths;
+  const reqCandles = Math.floor(reqMonths * 21) + 10; // 월평균 21거래일 + 안전마진 10일
 
-  // 1단계: 데이터 보충 (기본 기능 활용)
+  // 1단계: 데이터 보충 (충분한 기간의 데이터가 있는지 체크)
   const missing = codes.filter(c => {
     const d = SimState.watchData[c];
-    return !d || !d.candlesWithBB || d.candlesWithBB.length === 0;
+    return !d || !d.candlesWithBB || d.candlesWithBB.length < reqCandles;
   });
   if (missing.length > 0) {
     btn.textContent = `데이터 수집 (${missing.length})...`;
     try {
       const stocksToFetch = missing.map(c => ({ code: c }));
-      await API.fetchBatch(stocksToFetch, SimState.candleCount, SimState.listInterval, (code, res) => {
+      // 🚀 [WFA 핵심 수정] 고정된 250개가 아닌, 필요한 만큼(reqCandles)의 데이터를 요청
+      const fetchCount = Math.max(250, reqCandles); 
+      await API.fetchBatch(stocksToFetch, fetchCount, SimState.listInterval, (code, res) => {
         if (res) SimState.watchData[code] = Indicators.analyzeAll(res, 20, _getIndicatorOpts());
       });
     } catch (e) { console.warn('데이터 수집 오류:', e); }
@@ -538,21 +546,55 @@ async function runOptimization(codes) {
     };
   });
 
-  let maxCandles = 0;
-  codes.forEach(c => {
-    const len = SimState.watchData[c]?.candlesWithBB?.length || 0;
-    if (len > maxCandles) maxCandles = len;
+  // 3단계: [월 단위 일관성 적용] 슬라이딩 윈도우 루프 실행 (휴일 고려한 달력 기반)
+  const firstCode = codes[0];
+  const allCandles = SimState.watchData[firstCode]?.candlesWithBB || [];
+  const monthIdxMap = {}; // "YYYY-MM" -> { start, end }
+  allCandles.forEach((c, idx) => {
+    const mKey = c.date.slice(0, 7);
+    if (!monthIdxMap[mKey]) monthIdxMap[mKey] = { start: idx, end: idx };
+    monthIdxMap[mKey].end = idx;
   });
 
-  // 3단계: 슬라이딩 윈도우 루프 실행
+  const uniqueMonths = Object.keys(monthIdxMap).sort();
+  const testMonthsCnt = testMonths || 1; 
+  const trainMonthsCnt = trainMonths || 3;
+
   let windows = [];
-  let currentEnd = maxCandles;
-  while (currentEnd - testSize - trainSize >= 0) {
-    const testStart = currentEnd - testSize;
-    const trainStart = testStart - trainSize;
-    windows.unshift({ trainStart, trainEnd: testStart, testStart, testEnd: currentEnd });
-    currentEnd -= testSize;
+  let totalAddedOOSMonths = 0;
+  // 최신 데이터(uniqueMonths의 마지막)부터 역순으로 윈도우 생성 (월 단위 정밀 정렬)
+  for (let i = uniqueMonths.length - 1; i >= 0; i -= testMonthsCnt) {
+    if (totalAddedOOSMonths >= SimState.simPeriodMonths) break;
+
+    const testEndMonthIdx = i;
+    const testStartMonthIdx = Math.max(0, i - testMonthsCnt + 1);
+    
+    // 학습 기간 끝은 검증 시작 바로 전 달이어야 함
+    const trainEndMonthIdx = testStartMonthIdx - 1;
+    const trainStartMonthIdx = trainEndMonthIdx - trainMonthsCnt + 1;
+
+    // 학습 기간( trainMonthsCnt )을 확보할 수 없는 시점에 도달하면 슬라이딩 중단
+    if (trainStartMonthIdx < 0) break;
+
+    const testEndMonth = uniqueMonths[testEndMonthIdx];
+    const testStartMonth = uniqueMonths[testStartMonthIdx];
+    const trainEndMonth = uniqueMonths[trainEndMonthIdx];
+    const trainStartMonth = uniqueMonths[trainStartMonthIdx];
+
+    windows.unshift({
+      trainStart: monthIdxMap[trainStartMonth].start,
+      trainEnd: monthIdxMap[trainEndMonth].end + 1, // slice()용
+      testStart: monthIdxMap[testStartMonth].start,
+      testEnd: monthIdxMap[testEndMonth].end + 1
+    });
+
+    totalAddedOOSMonths += testMonthsCnt;
   }
+
+  // 🚀 [신규] 윈도우에 연대순(과거->현재)으로 회차 번호 부여
+  windows.forEach((win, idx) => {
+    win.roundIdx = idx + 1;
+  });
 
   if (windows.length === 0) {
      showToast('데이터가 부족합니다 (학습+검증 기간 확인 요망).', 'error');
@@ -593,9 +635,15 @@ async function runOptimization(codes) {
       const testSlice = fullCandles.slice(win.testStart, win.testEnd);
       if (testSlice.length === 0) continue;
 
-      // OOS 구간의 최적 지표를 타임라인에 저장
-      const currentMonthKey = testSlice[0].date.slice(0, 7); // 예: "2023-11"
-      wfaResults[code].wfaTimeline[currentMonthKey] = bestCombo;
+      // [개선] OOS 구간의 모든 월에 대해 최적 지표 타임라인 등록 (다중 월 설정 대응)
+      for (let i = win.testStart; i < win.testEnd; i++) {
+        const mKey = fullCandles[i].date.slice(0, 7);
+        wfaResults[code].wfaTimeline[mKey] = { 
+          combo: bestCombo, 
+          roundIdx: win.roundIdx 
+        };
+      }
+
       wfaResults[code].lastCombo = bestCombo;
 
       // STB 연산: 지표 조합(Combination) 변동성 체크
@@ -622,12 +670,23 @@ async function runOptimization(codes) {
       if (isRes && isRes.pnl > 0) wfaResults[code].isWinCount++;
       wfaResults[code].isCount++;
 
+      // 🚀 WFE 지표의 정확성을 위해 오직 전진(OOS) 구간의 수익률만 별도로 합산 (UI 표시용 통합 PnL과 분리)
+      const oosRes = _calculateTotalSim({ ...SimState.watchData[code], candlesWithBB: testSlice });
+      wfaResults[code].oosPnlSum = (wfaResults[code].oosPnlSum || 0) + (oosRes?.pnl || 0);
+
       Object.assign(SimState, backup);
     }
   }
 
   // 4단계: 최종 성과 합산 및 전면 주입 (로직 정상화 - 단일 시뮬레이션 완주)
   Object.assign(SimState, originalState);
+  
+  // 🚀 [WFA 환경 통일] 분석 결과 합산 시 Worker 최적화 환경과 동일하게 UI 간섭 요소를 강제 제거
+  SimState.holdDaysActive = false; 
+  SimState.targetProfitActive = false; 
+  SimState.bbFilterThreshold = 0; 
+  SimState.trailingStopActive = false;
+
   let found = false;
   for (const code of codes) {
     const res = wfaResults[code];
@@ -644,11 +703,16 @@ async function runOptimization(codes) {
     totalResult.oosPnl = finalPnl; 
     
     // 신규 추가: WFE, STB 지표
-    totalResult.wfeScore = (totalResult.isPnl > 0 ? (finalPnl / totalResult.isPnl) * 100 : 0);
+    // 🚀 점수 스케일 정규화: 훈련 및 검증 기간(개월 수) 단위로 수익률을 나눠 왜곡 방지
+    const totalTestMonths = (windows.length * testMonths) || 1; 
+    const isAvgPerMonth = totalResult.isPnl / trainMonths;
+    const oosAvgPerMonth = (res.oosPnlSum || 0) / totalTestMonths;
+
+    totalResult.wfeScore = (isAvgPerMonth > 0 ? (oosAvgPerMonth / isAvgPerMonth) * 100 : 0);
     const compareCount = Math.max(1, res.isCount - 1);
     totalResult.stbScore = res.isCount > 1 ? (100 - (res.comboChangeCount / compareCount) * 100) : 100;
 
-    totalResult.robustScore = (totalResult.isPnl > 0 ? finalPnl / totalResult.isPnl : 0);
+    totalResult.robustScore = (isAvgPerMonth > 0 ? (oosAvgPerMonth / isAvgPerMonth) : 0);
 
     SimState.optResults[code] = res.lastCombo;
     SimState.simResults[code] = totalResult; 
@@ -1926,10 +1990,25 @@ function _calculateTotalSim(data, wfaParamsMap = null) {
 
   // startDate보다 크거나 같은 첫 번째 캔들 인덱스 찾기
   let startIdx = 0;
-  for (let i = 0; i < totalDays; i++) {
-    if (candles[i] && new Date(candles[i].date) >= startDate) {
-      startIdx = i;
-      break;
+  
+  // 🚀 [WFA 핵심 수정] 타임라인(wfaParamsMap)이 있으면, UI 설정보다 타임라인의 첫 달을 우선하여 분석 시작
+  if (wfaParamsMap) {
+    const sortedKeys = Object.keys(wfaParamsMap).sort();
+    if (sortedKeys.length > 0) {
+      const firstMonth = sortedKeys[0]; // 예: "2023-10"
+      for (let i = 0; i < totalDays; i++) {
+        if (candles[i].date.startsWith(firstMonth)) {
+          startIdx = i;
+          break;
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < totalDays; i++) {
+      if (candles[i] && new Date(candles[i].date) >= startDate) {
+        startIdx = i;
+        break;
+      }
     }
   }
 
@@ -1946,22 +2025,32 @@ function _calculateTotalSim(data, wfaParamsMap = null) {
 
   const originalSimState = { ...SimState };
   let activeMonthKey = null;
+  let currentRoundIdx = 1; // 기본 1회차
 
   try {
   for (let i = startIdx; i <= endThreshold; i++) {
     if (i < nextAllowedIdx) continue; 
 
     const c = candles[i];
-    if (!c.bbUpper || !c.bbLower) continue;
 
-    // 🚀 [WFA 핵심] 매달 해당 월의 최적 지표로 실시간 스위칭
+    // 🚀 [WFA 핵심 수정] 매달 해당 월의 최적 지표로 실시간 스위칭
     const monthKey = c.date.slice(0, 7); // 예: "2023-11"
     if (wfaParamsMap && wfaParamsMap[monthKey] && activeMonthKey !== monthKey) {
       Object.assign(SimState, originalSimState);
-      Object.assign(SimState, wfaParamsMap[monthKey]);
+      const timelineEntry = wfaParamsMap[monthKey];
+      
+      // 타임라인 데이터 형식(객체 여부)에 따른 분기 처리 (이전 호환성 보장)
+      const newCombo = timelineEntry.combo || timelineEntry;
+      Object.assign(SimState, newCombo);
+      
+      if (timelineEntry.roundIdx) currentRoundIdx = timelineEntry.roundIdx;
       activeMonthKey = monthKey;
     }
     const params = SimState;
+
+    // 🚀 [WFA 핵심 수정] BB를 사용하는 전략일 경우에만 BB 데이터 존재 여부 체크
+    if (params.bbFilterActive && (!c.bbUpper || !c.bbLower)) continue;
+
     const win = params.simSignalWindow; 
 
     // 지표가 하나도 선택되지 않았으면 스킵 (WFA 윈도우별 대응)
@@ -2129,6 +2218,7 @@ function _calculateTotalSim(data, wfaParamsMap = null) {
       const buyPrice = candles[buyIdx]?.[SimState.bbBuyPriceType] ?? candles[buyIdx]?.close ?? 0;
       if (firstBuyPrice === null) firstBuyPrice = buyPrice;
       const buyDate = candles[buyIdx]?.date || 'Unknown';
+      const buyRoundIdx = currentRoundIdx; // 매수 시점의 회차 저장
 
       let hitTarget = false;
       let isOpen = false;
@@ -2147,6 +2237,19 @@ function _calculateTotalSim(data, wfaParamsMap = null) {
       
       for (let j = 0; j < maxWatchDays; j++) {
         const checkIdx = buyIdx + j;
+
+        // 🚀 [WFA 핵심 수정] 보유 중에도 달이 바뀌면 해당 월의 최적 전략(매도 규칙)으로 실시간 교체
+        const mKey = candles[checkIdx].date.slice(0, 7);
+        if (wfaParamsMap && wfaParamsMap[mKey] && activeMonthKey !== mKey) {
+          Object.assign(SimState, originalSimState);
+          const timelineEntry = wfaParamsMap[mKey];
+          const newCombo = timelineEntry.combo || timelineEntry;
+          Object.assign(SimState, newCombo);
+          
+          if (timelineEntry.roundIdx) currentRoundIdx = timelineEntry.roundIdx;
+          activeMonthKey = mKey;
+        }
+
         if (!candles[checkIdx]) {
           isOpen = true;
           actualExitIdx = totalDays - 1;
@@ -2295,6 +2398,8 @@ function _calculateTotalSim(data, wfaParamsMap = null) {
       const reasonStr = (reasons.length > 0 ? reasons.join('+') : '시그널') + '(In)';
 
       trades.push({
+        simRound: (buyRoundIdx === currentRoundIdx) ? `${buyRoundIdx}` : `${buyRoundIdx}→${currentRoundIdx}`, // 🚀 이월 정보 생성
+        isCarriedOver: buyRoundIdx !== currentRoundIdx,
         sigDate,
         buyDate,
         buyPrice, // 🚀 실제 매수가 필드 복구 (보유 수익률 계산용)
@@ -2329,9 +2434,12 @@ function _calculateTotalSim(data, wfaParamsMap = null) {
     if (start === -1 || start >= totalDays) return;
 
     const startMonth = (candles[start]?.date || "").slice(0, 7);
-    const startParams = (wfaParamsMap && wfaParamsMap[startMonth]) ? wfaParamsMap[startMonth] : SimState;
+    const startEntry = (wfaParamsMap && wfaParamsMap[startMonth]) ? wfaParamsMap[startMonth] : null;
+    const startParams = startEntry ? (startEntry.combo || startEntry) : SimState;
+    
     const endMonth = (candles[end]?.date || "").slice(0, 7);
-    const endParams = (wfaParamsMap && wfaParamsMap[endMonth]) ? wfaParamsMap[endMonth] : SimState;
+    const endEntry = (wfaParamsMap && wfaParamsMap[endMonth]) ? wfaParamsMap[endMonth] : null;
+    const endParams = endEntry ? (endEntry.combo || endEntry) : SimState;
 
     // 매수 시점의 기초가
     const basePrice = candles[start]?.[originalSimState.bbBuyPriceType] || candles[start]?.close || 0;
@@ -2728,9 +2836,7 @@ function buildListItem(stock, data, rowNum, isPinned) {
         <span class="item-name">${data?.name || stock.name || stock.code}</span>
       </div>
       <div class="col-item col-sim-pnl ${pnlClass}">${simPnlStr}</div>
-      <div class="col-item col-sim-avg ${avgClass}">${simAvgStr}</div>
       <div class="col-item col-sim-bh ${bhClass}">${simBHStr}</div>
-      <div class="col-item col-sim-diff ${diffClass}">${simDiffStr}</div>
       <div class="col-item col-sim-mdd down">${Math.trunc(mddVal)}%</div>
       <div class="col-item col-sim-sha">${shaVal.toFixed(1)}</div>
       <div class="col-item col-sim-stn">${stnVal.toFixed(1)}</div>
@@ -2746,9 +2852,7 @@ function buildListItem(stock, data, rowNum, isPinned) {
         <span class="item-name">${data?.name || stock.name || stock.code}</span>
       </div>
       <div class="col-item col-sim-pnl">--</div>
-      <div class="col-item col-sim-avg">--</div>
       <div class="col-item col-sim-bh">--</div>
-      <div class="col-item col-sim-diff">--</div>
       <div class="col-item col-sim-mdd">--</div>
       <div class="col-item col-sim-sha">--</div>
       <div class="col-item col-sim-stn">--</div>
@@ -2843,23 +2947,11 @@ function _refreshListItem(code) {
     pnlEl.textContent = sim ? (pnl >= 0 ? '+' : '') + Math.trunc(pnl) + '%' : '--';
     pnlEl.className = `col-item col-sim-pnl ${sim ? (pnl >= 0 ? 'up' : 'down') : ''}`;
   }
-  const avgEl = el.querySelector('.col-sim-avg');
-  if (avgEl) {
-    const avg = sim?.pnlAvg ?? 0;
-    avgEl.textContent = sim ? (avg >= 0 ? '+' : '') + avg.toFixed(1) + '%' : '--';
-    avgEl.className = `col-item col-sim-avg ${sim ? (avg >= 0 ? 'up' : 'down') : ''}`;
-  }
   const bhEl = el.querySelector('.col-sim-bh');
   if (bhEl) {
     const bh = sim?.buyAndHoldPnl ?? 0;
     bhEl.textContent = sim && sim.total > 0 ? (bh >= 0 ? '+' : '') + Math.trunc(bh) + '%' : '--';
     bhEl.className = `col-item col-sim-bh ${sim && sim.total > 0 ? (bh >= 0 ? 'up' : 'down') : ''}`;
-  }
-  const diffEl = el.querySelector('.col-sim-diff');
-  if (diffEl) {
-    const diff = sim?.diffPnl ?? 0;
-    diffEl.textContent = sim && sim.total > 0 ? (diff >= 0 ? '+' : '') + Math.trunc(diff) + '%' : '--';
-    diffEl.className = `col-item col-sim-diff ${sim && sim.total > 0 ? (diff >= 0 ? 'up' : 'down') : ''}`;
   }
 
   // 🚀 리스크 지표 추가 갱신
@@ -2989,9 +3081,7 @@ function initColResizers() {
     name: '--sim-col-name',
     simCount: '--sim-col-count',
     simPnl: '--sim-col-pnl',
-    simAvg: '--sim-col-avg',
     simBH: '--sim-col-bh',
-    simDiff: '--sim-col-diff',
     simMDD: '--sim-col-mdd',
     simSHA: '--sim-col-sha',
     simSTN: '--sim-col-stn',
@@ -3000,7 +3090,7 @@ function initColResizers() {
     simSTB: '--sim-col-stb',
   };
   const MIN = {
-    name: 80, simCount: 40, simPnl: 40, simBH: 40, simDiff: 40, simMDD: 40, simSHA: 36, simSTN: 36, simRMD: 36, simWFE: 36, simSTB: 36
+    name: 80, simCount: 40, simPnl: 40, simBH: 40, simMDD: 40, simSHA: 36, simSTN: 36, simRMD: 36, simWFE: 36, simSTB: 36
   };
 
   document.querySelectorAll('.col-resizer').forEach(h => {
@@ -3057,9 +3147,7 @@ function syncColumnWidthsFromStorage() {
     name: '--sim-col-name',
     simCount: '--sim-col-count',
     simPnl: '--sim-col-pnl',
-    simAvg: '--sim-col-avg',
     simBH: '--sim-col-bh',
-    simDiff: '--sim-col-diff',
     simMDD: '--sim-col-mdd',
     simSHA: '--sim-col-sha',
     simSTN: '--sim-col-stn',
@@ -3539,7 +3627,11 @@ function renderSimHistory(trades) {
     const inPriceStr = fmtPrice(t.buyPrice, isUS);
     const outPriceStr = t.isOpen ? '--' : fmtPrice(t.exitPrice, isUS);
 
+    const simRoundDisplay = t.simRound || '-';
+    const roundCls = t.isCarriedOver ? 'carried-over' : '';
+
     row.innerHTML = `
+      <td style="text-align: center;"><span class="round-badge ${roundCls}">${simRoundDisplay}</span></td>
       <td title="${t.buyDate} ~ ${t.exitDate || '진행중'}">${dateDisplay}</td>
       <td style="color:var(--up); font-weight:600;">${t.reason || '신호(In)'}</td>
       <td style="padding-left: 10px;">${exitCond}</td>

@@ -552,9 +552,7 @@
       --sim-col-idx: 20px;
       --sim-col-name: 90px;
       --sim-col-pnl: 40px;
-      --sim-col-avg: 40px;
       --sim-col-bh: 40px;
-      --sim-col-diff: 40px;
       --sim-col-mdd: 38px;
       --sim-col-sha: 38px;
       --sim-col-stn: 38px;
@@ -649,9 +647,7 @@
         var(--sim-col-idx) 
         var(--sim-col-name) 
         var(--sim-col-pnl) 
-        var(--sim-col-avg) 
         var(--sim-col-bh) 
-        var(--sim-col-diff) 
         var(--sim-col-mdd) 
         var(--sim-col-sha) 
         var(--sim-col-stn) 
@@ -677,9 +673,7 @@
         var(--sim-col-idx) 
         var(--sim-col-name) 
         var(--sim-col-pnl) 
-        var(--sim-col-avg) 
         var(--sim-col-bh) 
-        var(--sim-col-diff) 
         var(--sim-col-mdd) 
         var(--sim-col-sha) 
         var(--sim-col-stn) 
@@ -814,6 +808,7 @@
                 <table class="sim-history-table">
                   <thead>
                     <tr>
+                      <th style="width: 55px; text-align: center;">시뮬#</th>
                       <th style="width: 80px;">날짜</th>
                       <th style="width: 80px;">진입/이탈</th>
                       <th style="width: 80px; text-align: left; padding-left: 10px;">상태</th>
@@ -914,15 +909,6 @@
                   <label><input type="radio" name="pnlType" value="simple" checked><span>단리</span></label>
                   <label><input type="radio" name="pnlType" value="compound"><span>복리</span></label>
                 </div>
-              </div>
-              
-              <div style="width: 1px; height: 12px; background: rgba(255,255,255,0.1); margin: 0 4px;"></div>
-              
-              <div class="sim-input-group" style="margin-left: auto;">
-                <span class="sim-input-label">분석 대상 그룹</span>
-                <select id="simGroupSelect" class="sim-field" style="width: 110px;">
-                  <option value="all">전체 종목</option>
-                </select>
               </div>
             </div>
           </div>
@@ -1166,21 +1152,13 @@
                     class="fas fa-sort"></i></span></span>
               <div class="col-resizer" data-col="simPnl"></div>
             </div>
-            <div class="col-header col-sim-avg" data-col-id="simAvg">
-              <span class="sort-col" data-col="simAvgPnl">평균<span class="sort-icon" id="sort-simAvgPnl"><i
-                    class="fas fa-sort"></i></span></span>
-              <div class="col-resizer" data-col="simAvg"></div>
-            </div>
+
             <div class="col-header col-sim-bh" data-col-id="simBH">
               <span class="sort-col" data-col="simBH">보유<span class="sort-icon" id="sort-simBH"><i
                     class="fas fa-sort"></i></span></span>
               <div class="col-resizer" data-col="simBH"></div>
             </div>
-            <div class="col-header col-sim-diff" data-col-id="simDiff">
-              <span class="sort-col" data-col="simDiff">비교<span class="sort-icon" id="sort-simDiff"><i
-                    class="fas fa-sort"></i></span></span>
-              <div class="col-resizer" data-col="simDiff"></div>
-            </div>
+
             <div class="col-header col-sim-mdd" data-col-id="simMDD">
               <span class="sort-col" data-col="simMDD">MDD<span class="sort-icon" id="sort-simMDD"><i
                     class="fas fa-sort"></i></span></span>
